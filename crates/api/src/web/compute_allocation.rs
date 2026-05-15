@@ -30,7 +30,7 @@ use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc};
 use serde::{Deserialize, Deserializer, de};
 
-use super::filters;
+use super::{Base, filters};
 use crate::api::Api;
 
 const DEFAULT_PAGE_RECORD_LIMIT: usize = 100;
@@ -265,11 +265,7 @@ pub async fn show_detail(
     }
     .allocations
     .pop() else {
-        return (
-            StatusCode::NOT_FOUND,
-            "Requested compute allocation not found",
-        )
-            .into_response();
+        return super::not_found_response(compute_allocation_id);
     };
 
     if show_json {
@@ -530,3 +526,6 @@ pub async fn delete(
 
     Redirect::to("/admin/compute-allocation").into_response()
 }
+
+impl super::Base for ComputeAllocationShow {}
+impl super::Base for ComputeAllocationDetailDisplay {}

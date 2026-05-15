@@ -38,7 +38,9 @@ use http_body_util::{BodyExt, Full};
 use hyper::body::Bytes;
 use hyper_util::rt::TokioExecutor;
 use ipnetwork::IpNetwork;
-use rpc::forge::{DpuInfo, FlatInterfaceNetworkSecurityGroupConfig, InterfaceAssociationType};
+use rpc::forge::{
+    DpuInfo, FlatInterfaceNetworkSecurityGroupConfig, InterfaceAssociationType, InterfaceType,
+};
 use rpc::{Timestamp, common as rpc_common};
 use tokio::sync::Mutex;
 
@@ -71,7 +73,7 @@ struct TestOut {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_etv_nvue() -> eyre::Result<()> {
     let expected = include_str!("../../templates/tests/full_nvue_startup_etv.yaml.expected");
-    test_nvue_generic(VpcVirtualizationType::EthernetVirtualizerWithNvue, expected).await
+    test_nvue_generic(VpcVirtualizationType::EthernetVirtualizer, expected).await
 }
 
 // test_fnn_l3 tests that config is being generated successfully
@@ -162,7 +164,7 @@ async fn test_nvue_generic(
 #[tokio::test(flavor = "multi_thread")]
 // Test retrieving instance metadata using FMDS
 pub async fn test_fmds_get_data() -> eyre::Result<()> {
-    let out = run_common_parts(VpcVirtualizationType::EthernetVirtualizerWithNvue, true).await?;
+    let out = run_common_parts(VpcVirtualizationType::EthernetVirtualizer, true).await?;
     if out.is_skip {
         return Ok(());
     }
@@ -412,7 +414,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
     let config_version = format!("V{}-T{}", 1, now().timestamp_micros());
 
     let vpc_peer_prefixes = match virtualization_type {
-        VpcVirtualizationType::EthernetVirtualizerWithNvue => {
+        VpcVirtualizationType::EthernetVirtualizer => {
             vec!["10.217.6.176/29".to_string()]
         }
         VpcVirtualizationType::Fnn => {
@@ -422,7 +424,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
     };
 
     let vpc_peer_vnis = match virtualization_type {
-        VpcVirtualizationType::EthernetVirtualizerWithNvue => {
+        VpcVirtualizationType::EthernetVirtualizer => {
             vec![]
         }
         VpcVirtualizationType::Fnn => {
@@ -458,6 +460,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         network_security_group: None,
         internal_uuid: None,
         mtu: None,
+        ipv6_interface_config: None,
     };
     assert_eq!(admin_interface.svi_ip, None);
 
@@ -626,6 +629,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         }),
         internal_uuid: None,
         mtu: None,
+        ipv6_interface_config: None,
     };
 
     let network_security_policy_overrides = vec![
@@ -750,11 +754,11 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
                 hostname: None,
                 tenant_keyset_ids: vec![],
             }),
-            os: Some(rpc::forge::OperatingSystem {
+            os: Some(rpc::forge::InstanceOperatingSystemConfig {
                 phone_home_enabled: false,
                 run_provisioning_instructions_on_every_boot: false,
                 user_data: Some("".to_string()),
-                variant: Some(rpc::forge::operating_system::Variant::Ipxe(rpc::forge::InlineIpxe {
+                variant: Some(rpc::forge::instance_operating_system_config::Variant::Ipxe(rpc::forge::InlineIpxe {
                     ipxe_script: " chain http://10.217.126.4/public/blobs/internal/x86_64/qcow-imager.efi loglevel=7 console=ttyS0,115200 console=tty0 pci=realloc=off image_url=https://pbss.s8k.io/v1/AUTH_team-forge/images.qcow2/carbide-dev-environment/carbide-dev-environment-latest.qcow2".to_string(),
                     user_data: Some("".to_string()),
                 })),
@@ -770,7 +774,9 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
                     device_instance: 0,
                     virtual_function_id: None,
                     ip_address: None,
+                    ipv6_interface_config: None,
                 }],
+                auto: false,
             }),
             infiniband: None,
             network_security_group_id: None,
@@ -819,6 +825,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
     };
 
     let netconf = rpc::forge::ManagedHostNetworkConfigResponse {
+        bgp_leaf_session_password: Some("this_is_not_a_real_password".to_string()),
         site_global_vpc_vni: None,
         asn: 65535,
         datacenter_asn: 11414,
@@ -831,8 +838,10 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
             vni: 22222,
         }],
         routing_profile: Some(rpc::forge::RoutingProfile {
+            tenant_leak_communities_accepted: false,
             leak_default_route_from_underlay: false,
             leak_tenant_host_routes_to_underlay: false,
+            accepted_leaks_from_underlay: vec![],
             route_target_imports: vec![rpc_common::RouteTarget {
                 asn: 44444,
                 vni: 55555,
@@ -953,6 +962,7 @@ fn timestamp_from_secs_nanos(secs: i64, nanos: i32) -> Timestamp {
     Timestamp::from(system_time)
 }
 
+#[allow(deprecated)]
 async fn handle_find_interfaces() -> impl axum::response::IntoResponse {
     let interface = rpc::forge::MachineInterface {
         id: Some(
@@ -981,7 +991,8 @@ async fn handle_find_interfaces() -> impl axum::response::IntoResponse {
         vendor: None,
         created: Some(timestamp_from_secs_nanos(1773084037, 3824000)),
         last_dhcp: Some(timestamp_from_secs_nanos(1773097243, 70533000)),
-        is_bmc: None,
+        is_bmc: Some(false),
+        interface_type: Some(InterfaceType::Data.into()),
         power_shelf_id: None,
         switch_id: None,
         association_type: Some(InterfaceAssociationType::Machine.into()),

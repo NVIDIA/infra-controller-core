@@ -54,6 +54,7 @@ async fn find_by_address_bmc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::erro
         segment_type: NetworkSegmentType::Underlay,
         id: uuid::uuid!("f9860f19-37d5-44f6-b637-84de4648cd39").into(),
         can_stretch: None,
+        allocation_strategy: Default::default(),
     };
     let network_segment =
         db::network_segment::persist(new_ns, &mut txn, NetworkSegmentControllerState::Ready)
@@ -61,9 +62,8 @@ async fn find_by_address_bmc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::erro
     // An interface that isn't attached to a Machine. This is what BMC interfaces are.
     let interface = db::machine_interface::create(
         &mut txn,
-        &network_segment,
+        std::slice::from_ref(&network_segment),
         &MacAddress::from_str("ff:ff:ff:ff:ff:ff").unwrap(),
-        Some(domain.id),
         true,
         AddressSelectionStrategy::NextAvailableIp,
     )

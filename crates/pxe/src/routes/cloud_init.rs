@@ -30,19 +30,29 @@ use rpc::forge;
 use rpc::forge::PxeDomain;
 
 use crate::common::{AppState, Machine};
-/// Generates the content of the /etc/forge/config.toml file
-//
-// TODO(chet): This should take a MachineInterfaceId, but I think by doing that,
-// then agent_config (which is in host-support), would need to import forge-api,
-// which I think would then make it so scout + the agent start having a dep on
-// api/ -- I don't think it's a problem, but I'll propose it in a separate MR.
-fn generate_forge_agent_config(machine_interface_id: MachineInterfaceId) -> String {
-    let interface_id = uuid::Uuid::parse_str(&machine_interface_id.to_string()).unwrap();
+
+const DEFAULT_NUM_OF_VFS: u32 = 16;
+
+/// Generates the content of the /etc/forge/config.toml file.
+///
+/// When `api_url_override` is provided (for external hosts on the
+/// static-assignments segment), it's written into the `[forge-system]`
+/// section so the DPU agent connects to the correct API endpoint
+/// instead of defaulting to `carbide-api.forge`.
+fn generate_forge_agent_config(
+    machine_interface_id: MachineInterfaceId,
+    api_url_override: Option<&str>,
+) -> String {
     let config = agent_config::AgentConfigFromPxe {
-        machine: agent_config::MachineConfigFromPxe { interface_id },
+        forge_system: api_url_override.map(|url| agent_config::ForgeSystemConfigFromPxe {
+            api_server: url.to_string(),
+        }),
+        machine: agent_config::MachineConfigFromPxe {
+            interface_id: machine_interface_id,
+        },
     };
 
-    toml::to_string(&config).unwrap()
+    toml::to_string(&config).unwrap_or_else(|e| format!("# serialization error: {e}"))
 }
 
 fn print_and_generate_generic_error(error: String) -> (String, HashMap<String, String>) {
@@ -62,15 +72,19 @@ fn user_data_handler(
     domain: PxeDomain,
     hbn_reps: Option<String>,
     hbn_sfs: Option<String>,
+    num_of_vfs: Option<u32>,
     vf_intercept_bridge_name: Option<String>,
     host_intercept_bridge_name: Option<String>,
     host_intercept_bridge_port: Option<String>,
     vf_intercept_bridge_port: Option<String>,
     vf_intercept_bridge_sf: Option<String>,
+    api_url_override: Option<String>,
+    pxe_url_override: Option<String>,
     state: State<AppState>,
 ) -> (String, HashMap<String, String>) {
     let config = state.runtime_config.clone();
-    let forge_agent_config = generate_forge_agent_config(machine_interface_id);
+    let forge_agent_config =
+        generate_forge_agent_config(machine_interface_id, api_url_override.as_deref());
 
     let mut context: HashMap<String, String> = HashMap::new();
     context.insert("mac_address".to_string(), machine_interface.mac_address);
@@ -86,8 +100,16 @@ fn user_data_handler(
         }
     }
     context.insert("interface_id".to_string(), machine_interface_id.to_string());
-    context.insert("api_url".to_string(), config.client_facing_api_url);
-    context.insert("pxe_url".to_string(), config.pxe_url);
+    // Use URL overrides for external clients (static-assignments segment),
+    // falling back to global config.
+    context.insert(
+        "api_url".to_string(),
+        api_url_override.unwrap_or(config.client_facing_api_url),
+    );
+    context.insert(
+        "pxe_url".to_string(),
+        pxe_url_override.unwrap_or(config.pxe_url),
+    );
     context.insert(
         "forge_agent_config_b64".to_string(),
         base64::engine::general_purpose::STANDARD.encode(forge_agent_config),
@@ -99,10 +121,9 @@ fn user_data_handler(
         .unwrap_or("".to_string());
     context.insert("forge_bmc_fw_update".to_string(), bmc_fw_update);
 
-    let start = SystemTime::now();
-    let seconds_since_epoch = start
+    let seconds_since_epoch = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .expect("Time went backwards")
+        .unwrap_or(std::time::Duration::ZERO)
         .as_secs();
 
     context.insert(
@@ -117,6 +138,9 @@ fn user_data_handler(
     if let Some(hbn_sfs) = hbn_sfs {
         context.insert("forge_hbn_sfs".to_string(), hbn_sfs);
     }
+
+    let num_of_vfs = num_of_vfs.unwrap_or(DEFAULT_NUM_OF_VFS);
+    context.insert("num_of_vfs".to_string(), num_of_vfs.to_string());
 
     if let Some(vf_intercept_bridge_name) = vf_intercept_bridge_name {
         context.insert(
@@ -198,11 +222,14 @@ pub async fn user_data(machine: Machine, state: State<AppState>) -> impl IntoRes
                         domain,
                         discovery_instructions.hbn_reps,
                         discovery_instructions.hbn_sfs,
+                        discovery_instructions.num_of_vfs,
                         discovery_instructions.vf_intercept_bridge_name,
                         discovery_instructions.host_intercept_bridge_name,
                         discovery_instructions.host_intercept_bridge_port,
                         discovery_instructions.vf_intercept_bridge_port,
                         discovery_instructions.vf_intercept_bridge_sf,
+                        machine.instructions.api_url_override,
+                        machine.instructions.pxe_url_override,
                         state.clone(),
                     ),
                     None => print_and_generate_generic_error(format!(
@@ -282,7 +309,7 @@ mod tests {
     #[test]
     fn forge_agent_config() {
         let interface_id = "91609f10-c91d-470d-a260-6293ea0c1234".parse().unwrap();
-        let config = generate_forge_agent_config(interface_id);
+        let config = generate_forge_agent_config(interface_id, None);
 
         // The intent here is to actually test what the written
         // configuration file looks like, so we can visualize to
@@ -293,7 +320,7 @@ mod tests {
         let test_config = fs::read_to_string(format!("{TEST_DATA_DIR}/agent_config.toml")).unwrap();
         assert_eq!(config, test_config);
 
-        let data: toml::Value = config.parse().unwrap();
+        let data: toml::Value = toml::from_str(&config).unwrap();
 
         assert_eq!(
             data.get("machine")
@@ -305,6 +332,9 @@ mod tests {
             interface_id.to_string().as_str(),
         );
 
+        // No forge-system section when no override is provided.
+        assert!(data.get("forge-system").is_none());
+
         // Check to make sure is_fake_dpu gets skipped
         // from the serialized output.
         let skipped = match data.get("machine").unwrap().get("is_fake_dpu") {
@@ -312,5 +342,95 @@ mod tests {
             None => true,
         };
         assert!(skipped);
+    }
+
+    #[test]
+    fn forge_agent_config_with_external_api_url() {
+        let interface_id = "91609f10-c91d-470d-a260-6293ea0c1234".parse().unwrap();
+        let config = generate_forge_agent_config(interface_id, Some("https://10.99.0.1:1079"));
+
+        let test_config =
+            fs::read_to_string(format!("{TEST_DATA_DIR}/agent_config_external.toml")).unwrap();
+        assert_eq!(config, test_config);
+
+        let data: toml::Value = toml::from_str(&config).unwrap();
+
+        assert_eq!(
+            data.get("forge-system")
+                .unwrap()
+                .get("api-server")
+                .unwrap()
+                .as_str()
+                .unwrap(),
+            "https://10.99.0.1:1079",
+        );
+
+        assert_eq!(
+            data.get("machine")
+                .unwrap()
+                .get("interface-id")
+                .unwrap()
+                .as_str()
+                .unwrap(),
+            interface_id.to_string().as_str(),
+        );
+    }
+
+    /// Verifies the real user-data template renders VF settings from the configured count.
+    #[test]
+    fn user_data_template_uses_configured_num_of_vfs() {
+        let template_glob = concat!(env!("CARGO_MANIFEST_DIR"), "/../../pxe/templates/**/*");
+        let tera = tera::Tera::new(template_glob).unwrap();
+
+        // Use the same string-valued context shape the route handler passes to Tera.
+        let context = HashMap::from([
+            (
+                "api_url".to_string(),
+                "https://carbide-api.forge".to_string(),
+            ),
+            (
+                "forge_agent_config_b64".to_string(),
+                "W21hY2hpbmVdCg==".to_string(),
+            ),
+            ("forge_bmc_fw_update".to_string(), String::new()),
+            ("forge_hbn_reps".to_string(), String::new()),
+            ("forge_hbn_sfs".to_string(), String::new()),
+            (
+                "forge_host_intercept_bridge_name".to_string(),
+                String::new(),
+            ),
+            (
+                "forge_host_intercept_bridge_port".to_string(),
+                String::new(),
+            ),
+            ("forge_vf_intercept_bridge_name".to_string(), String::new()),
+            ("forge_vf_intercept_bridge_port".to_string(), String::new()),
+            ("hostname".to_string(), "test-host".to_string()),
+            (
+                "interface_id".to_string(),
+                "91609f10-c91d-470d-a260-6293ea0c1234".to_string(),
+            ),
+            ("num_of_vfs".to_string(), "3".to_string()),
+            (
+                "pxe_url".to_string(),
+                "http://carbide-pxe.forge".to_string(),
+            ),
+            ("seconds_since_epoch".to_string(), "0".to_string()),
+        ]);
+        let rendered = tera
+            .render(
+                "user-data",
+                &tera::Context::from_serialize(context).unwrap(),
+            )
+            .unwrap();
+
+        // The mlxconfig value and DHCP drop rules should use the configured count.
+        assert!(rendered.contains("NUM_OF_VFS=3"));
+        assert!(!rendered.contains("NUM_OF_VFS=16"));
+        assert_eq!(rendered.matches("--physdev-in pf0vf").count(), 3);
+        assert!(rendered.contains("--physdev-in pf0vf0_if"));
+        assert!(rendered.contains("--physdev-in pf0vf1_if"));
+        assert!(rendered.contains("--physdev-in pf0vf2_if"));
+        assert!(!rendered.contains("--physdev-in pf0vf3_if"));
     }
 }

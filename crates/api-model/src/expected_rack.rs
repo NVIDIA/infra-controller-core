@@ -17,8 +17,7 @@
 
 use std::collections::HashMap;
 
-use ::rpc::errors::RpcDataConversionError;
-use carbide_uuid::rack::RackId;
+use carbide_uuid::rack::{RackId, RackProfileId};
 use serde::Deserialize;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
@@ -27,25 +26,20 @@ use crate::metadata::{Metadata, default_metadata_for_deserializer};
 
 /// ExpectedRack represents a rack that has been declared and is expected to
 /// be fully populated with compute trays, switches, and power shelves. The
-/// rack_type determines how many of each node type to expect.
+/// rack_profile_id references a RackProfile in the Carbide config file.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct ExpectedRack {
     /// rack_id is the rack identifier, which comes from the DCIM.
-    /// This is the same rack_id that expected machines, switches,
-    /// and power shelves reference.
     pub rack_id: RackId,
 
-    /// rack_type is the type of rack (e.g. if it's a 72x1, 36x1, etc), which
-    /// determines the expected number of compute trays, switches, and power
-    /// shelves.
-    ///
-    /// TODO(chet): This must match a key in the rack_types config for now in
-    /// our initial implementation, but it may make better sense for the entire
-    /// RackTypeConfig to be shoved in here instead in the case of a DCIM
-    /// feeding us an expected rack config.
-    pub rack_type: String,
+    /// rack_profile_id is the identifier of the rack profile (e.g. "NVL72").
+    /// This maps to a RackProfile in the Carbide config file, which defines
+    /// the rack hardware type, topology, and rack capabilities.
+    pub rack_profile_id: RackProfileId,
 
-    /// User-defined metadata for the rack.
+    /// User-defined metadata for the rack. Physical-chassis and
+    /// physical-location attributes are recorded as well-known label keys
+    /// on this Metadata (see api-model::rack for the well-known keys).
     #[serde(default = "default_metadata_for_deserializer")]
     pub metadata: Metadata,
 }
@@ -61,39 +55,7 @@ impl<'r> FromRow<'r, PgRow> for ExpectedRack {
 
         Ok(ExpectedRack {
             rack_id: row.try_get("rack_id")?,
-            rack_type: row.try_get("rack_type")?,
-            metadata,
-        })
-    }
-}
-
-impl From<ExpectedRack> for rpc::forge::ExpectedRack {
-    fn from(expected_rack: ExpectedRack) -> Self {
-        rpc::forge::ExpectedRack {
-            rack_id: Some(expected_rack.rack_id),
-            rack_type: expected_rack.rack_type,
-            metadata: Some(expected_rack.metadata.into()),
-        }
-    }
-}
-
-impl TryFrom<rpc::forge::ExpectedRack> for ExpectedRack {
-    type Error = RpcDataConversionError;
-
-    fn try_from(rpc: rpc::forge::ExpectedRack) -> Result<Self, Self::Error> {
-        let rack_id = rpc
-            .rack_id
-            .ok_or(RpcDataConversionError::MissingArgument("rack_id"))?;
-        if rpc.rack_type.is_empty() {
-            return Err(RpcDataConversionError::InvalidArgument(
-                "rack_type is required".to_string(),
-            ));
-        }
-        let metadata = Metadata::try_from(rpc.metadata.unwrap_or_default())?;
-
-        Ok(ExpectedRack {
-            rack_id,
-            rack_type: rpc.rack_type,
+            rack_profile_id: row.try_get("rack_profile_id")?,
             metadata,
         })
     }

@@ -16,13 +16,13 @@
  */
 
 use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine_validation::MachineValidationId;
 use model::machine::MachineValidationFilter;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine_validation::{
     MachineValidation, MachineValidationState, MachineValidationStatus,
 };
 use sqlx::PgConnection;
-use uuid::Uuid;
 
 use super::ObjectFilter;
 use crate::db_read::DbReader;
@@ -80,12 +80,12 @@ pub async fn find_by(
 
 pub async fn update_status(
     txn: &mut PgConnection,
-    uuid: &Uuid,
+    id: &MachineValidationId,
     status: MachineValidationStatus,
 ) -> DatabaseResult<()> {
     let query = "UPDATE machine_validation SET state=$2 WHERE id=$1 RETURNING *";
     let _id = sqlx::query_as::<_, MachineValidation>(query)
-        .bind(uuid)
+        .bind(id)
         .bind(status.state.to_string())
         .fetch_one(txn)
         .await
@@ -94,12 +94,12 @@ pub async fn update_status(
 }
 pub async fn update_end_time(
     txn: &mut PgConnection,
-    uuid: &Uuid,
+    id: &MachineValidationId,
     status: &MachineValidationStatus,
 ) -> DatabaseResult<()> {
     let query = "UPDATE machine_validation SET end_time=NOW(),state=$2 WHERE id=$1 RETURNING *";
     let _id = sqlx::query_as::<_, MachineValidation>(query)
-        .bind(uuid)
+        .bind(id)
         .bind(status.state.to_string())
         .fetch_one(txn)
         .await
@@ -109,13 +109,13 @@ pub async fn update_end_time(
 
 pub async fn update_run(
     txn: &mut PgConnection,
-    uuid: &Uuid,
+    id: &MachineValidationId,
     total: i32,
     duration_to_complete: i64,
 ) -> DatabaseResult<()> {
     let query = "UPDATE machine_validation SET duration_to_complete=$2,total=$3,completed=0  WHERE id=$1 RETURNING *";
     let _id = sqlx::query_as::<_, MachineValidation>(query)
-        .bind(uuid)
+        .bind(id)
         .bind(duration_to_complete)
         .bind(total)
         .fetch_one(txn)
@@ -128,8 +128,8 @@ pub async fn create_new_run(
     machine_id: &MachineId,
     context: String,
     filter: MachineValidationFilter,
-) -> Result<Uuid, DatabaseError> {
-    let id = uuid::Uuid::new_v4();
+) -> Result<MachineValidationId, DatabaseError> {
+    let id = MachineValidationId::from(uuid::Uuid::new_v4());
     let query = "
         INSERT INTO machine_validation (
             id,
@@ -169,7 +169,9 @@ pub async fn create_new_run(
     crate::machine::update_machine_validation_id(machine_id, id, column_name, txn).await?;
 
     // Reset machine validation health report into initial state
-    let health_report = health_report::HealthReport::empty("machine-validation".to_string());
+    let health_report = health_report::HealthReport::empty(
+        health_report::HealthReport::MACHINE_VALIDATION_SOURCE.to_string(),
+    );
     crate::machine::update_machine_validation_health_report(txn, machine_id, &health_report)
         .await?;
 
@@ -252,16 +254,15 @@ pub async fn find_active_machine_validation_by_machine_id(
 
 pub async fn find_by_id(
     txn: impl DbReader<'_>,
-    validation_id: &Uuid,
+    id: &MachineValidationId,
 ) -> DatabaseResult<MachineValidation> {
-    let machine_validation =
-        find_by(txn, ObjectFilter::One(validation_id.to_string()), "id").await?;
+    let machine_validation = find_by(txn, ObjectFilter::One(id.to_string()), "id").await?;
 
     if !machine_validation.is_empty() {
         return Ok(machine_validation[0].clone());
     }
     Err(DatabaseError::InvalidArgument(format!(
-        "Validaion Id not found  {validation_id:?} "
+        "Validaion Id not found  {id:?} "
     )))
 }
 
@@ -272,7 +273,7 @@ pub async fn find_all(txn: impl DbReader<'_>) -> DatabaseResult<Vec<MachineValid
 pub async fn mark_machine_validation_complete(
     txn: &mut PgConnection,
     machine_id: &MachineId,
-    uuid: &Uuid,
+    id: &MachineValidationId,
     status: MachineValidationStatus,
 ) -> DatabaseResult<()> {
     //Mark machine validation request to false
@@ -281,6 +282,6 @@ pub async fn mark_machine_validation_complete(
     crate::machine::update_machine_validation_time(machine_id, txn).await?;
 
     //TODO repopulate the status
-    update_end_time(txn, uuid, &status).await?;
+    update_end_time(txn, id, &status).await?;
     Ok(())
 }

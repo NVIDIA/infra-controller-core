@@ -16,9 +16,11 @@
  */
 use carbide_uuid::switch::SwitchId;
 use db::switch as db_switch;
-use model::switch::{NewSwitch, SwitchConfig, SwitchControllerState, SwitchStatus};
+use model::switch::{
+    NewSwitch, SwitchConfig, SwitchControllerState, SwitchSearchFilter, SwitchStatus,
+};
 use rpc::forge::forge_server::Forge;
-use rpc::forge::{SwitchDeletionRequest, SwitchQuery};
+use rpc::forge::{AdminForceDeleteSwitchRequest, SwitchDeletionRequest, SwitchQuery};
 use tonic::Code;
 
 use crate::tests::common::api_fixtures::create_test_env;
@@ -123,14 +125,12 @@ async fn test_delete_switch_success(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     let env = create_test_env(pool).await;
 
     // First create a switch
-    let switch_config = rpc::forge::SwitchConfig {
-        name: "Switch1".to_string(),
-        enable_nmxc: false,
-        fabric_manager_config: None,
-        location: Some("Rack 3".to_string()),
-    };
-
-    let switch_id = new_switch(&env, Some(switch_config.name), switch_config.location).await?;
+    let switch_id = new_switch(
+        &env,
+        Some("Switch1".to_string()),
+        Some("Rack 3".to_string()),
+    )
+    .await?;
 
     // Now delete the switch
     let delete_request = SwitchDeletionRequest {
@@ -200,7 +200,6 @@ async fn test_switch_database_operations(
         name: "Switch1".to_string(),
         enable_nmxc: false,
         fabric_manager_config: None,
-        location: Some("High Voltage Rack".to_string()),
     };
 
     let switch_id = SwitchId::from(uuid::Uuid::new_v4());
@@ -209,22 +208,22 @@ async fn test_switch_database_operations(
         config: config.clone(),
         bmc_mac_address: None,
         metadata: None,
+        rack_id: None,
+        slot_number: Some(5),
+        tray_index: Some(3),
     };
 
     let created_switch = db_switch::create(&mut txn, &new_switch).await?;
 
     assert_eq!(created_switch.id, switch_id);
     assert_eq!(created_switch.config.name, "Switch1");
-    assert_eq!(
-        created_switch.config.location,
-        Some("High Voltage Rack".to_string())
-    );
+    assert_eq!(created_switch.slot_number, Some(5));
+    assert_eq!(created_switch.tray_index, Some(3));
 
     // Test finding the switch
     let found_switches = db_switch::find_by(
         &mut txn,
         db::ObjectColumnFilter::One(db_switch::IdColumn, &switch_id),
-        db_switch::SwitchSearchConfig::default(),
     )
     .await?;
 
@@ -252,7 +251,6 @@ async fn test_switch_status_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
         name: "Switch1".to_string(),
         enable_nmxc: false,
         fabric_manager_config: None,
-        location: Some("Status Test Rack".to_string()),
     };
 
     let switch_id = SwitchId::from(uuid::Uuid::new_v4());
@@ -261,6 +259,9 @@ async fn test_switch_status_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
         config: config.clone(),
         bmc_mac_address: None,
         metadata: None,
+        rack_id: None,
+        slot_number: Some(1),
+        tray_index: Some(0),
     };
 
     let mut switch = db_switch::create(&mut txn, &new_switch).await?;
@@ -297,7 +298,6 @@ async fn test_switch_controller_state_transitions(
         name: "Switch1".to_string(),
         enable_nmxc: false,
         fabric_manager_config: None,
-        location: Some("Controller Test Rack".to_string()),
     };
 
     let switch_id = SwitchId::from(uuid::Uuid::new_v4());
@@ -306,6 +306,9 @@ async fn test_switch_controller_state_transitions(
         config: config.clone(),
         bmc_mac_address: None,
         metadata: None,
+        rack_id: None,
+        slot_number: Some(2),
+        tray_index: Some(1),
     };
 
     let switch = db_switch::create(&mut txn, &new_switch).await?;
@@ -333,7 +336,6 @@ async fn test_switch_controller_state_transitions(
     let updated_switches = db_switch::find_by(
         &mut txn,
         db::ObjectColumnFilter::One(db_switch::IdColumn, &switch_id),
-        db_switch::SwitchSearchConfig::default(),
     )
     .await?;
 
@@ -393,7 +395,6 @@ async fn test_switch_conversion_roundtrip(
         name: "Switch1".to_string(),
         enable_nmxc: false,
         fabric_manager_config: None,
-        location: Some("Conversion Test Rack".to_string()),
     };
 
     let switch_id = SwitchId::from(uuid::Uuid::new_v4());
@@ -402,6 +403,9 @@ async fn test_switch_conversion_roundtrip(
         config: config.clone(),
         bmc_mac_address: None,
         metadata: None,
+        rack_id: None,
+        slot_number: Some(3),
+        tray_index: Some(2),
     };
 
     let mut switch = db_switch::create(&mut txn, &new_switch).await?;
@@ -447,7 +451,6 @@ async fn test_switch_find_all(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
             name: name.to_string(),
             enable_nmxc: false,
             fabric_manager_config: None,
-            location: Some("List Test Rack".to_string()),
         };
 
         let switch_id = SwitchId::from(uuid::Uuid::new_v4());
@@ -456,6 +459,9 @@ async fn test_switch_find_all(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
             config: config.clone(),
             bmc_mac_address: None,
             metadata: None,
+            rack_id: None,
+            slot_number: Some(0),
+            tray_index: Some(0),
         };
 
         let switch = db_switch::create(&mut txn, &new_switch).await?;
@@ -463,7 +469,7 @@ async fn test_switch_find_all(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
     }
 
     // Test listing all switch IDs
-    let listed_ids = db_switch::find_all(&mut txn).await?;
+    let listed_ids = db_switch::find_ids(txn.as_mut(), SwitchSearchFilter::default()).await?;
 
     // Verify all created IDs are in the list
     for created_id in &created_ids {
@@ -489,7 +495,6 @@ async fn test_switch_controller_state_outcome(
         name: "Switch1".to_string(),
         enable_nmxc: false,
         fabric_manager_config: None,
-        location: Some("Outcome Test Rack".to_string()),
     };
 
     let switch_id = SwitchId::from(uuid::Uuid::new_v4());
@@ -498,6 +503,9 @@ async fn test_switch_controller_state_outcome(
         config: config.clone(),
         bmc_mac_address: None,
         metadata: None,
+        rack_id: None,
+        slot_number: Some(4),
+        tray_index: Some(1),
     };
 
     let _switch = db_switch::create(&mut txn, &new_switch).await?;
@@ -512,7 +520,6 @@ async fn test_switch_controller_state_outcome(
     let updated_switches = db_switch::find_by(
         &mut txn,
         db::ObjectColumnFilter::One(db_switch::IdColumn, &switch_id),
-        db_switch::SwitchSearchConfig::default(),
     )
     .await?;
 
@@ -561,9 +568,35 @@ async fn test_find_switch_bmc_info_no_matching_data(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    let switch_id = new_switch(&env, Some("Switch3".to_string()), None).await?;
 
-    // bmc_info should be None when no expected_switch or machine_interface data exists
+    // Create a switch without the corresponding expected switch data
+    let switch_id = model::switch::switch_id::from_hardware_info(
+        "NO-BMC-SERIAL",
+        "NVIDIA",
+        "Switch",
+        carbide_uuid::switch::SwitchIdSource::ProductBoardChassisSerial,
+        carbide_uuid::switch::SwitchType::NvLink,
+    )
+    .unwrap();
+
+    let new_switch_record = NewSwitch {
+        id: switch_id,
+        config: SwitchConfig {
+            name: "SwitchNoBmc".to_string(),
+            enable_nmxc: false,
+            fabric_manager_config: None,
+        },
+        bmc_mac_address: None,
+        metadata: None,
+        rack_id: None,
+        slot_number: Some(0),
+        tray_index: Some(0),
+    };
+
+    let mut txn = env.pool.begin().await.unwrap();
+    db_switch::create(&mut txn, &new_switch_record).await?;
+    txn.commit().await.unwrap();
+
     let find_request = SwitchQuery {
         name: None,
         switch_id: Some(switch_id),
@@ -581,6 +614,111 @@ async fn test_find_switch_bmc_info_no_matching_data(
     assert!(
         found_switch.bmc_info.is_none(),
         "bmc_info should be None when no expected switch data exists"
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_force_delete_switch_success(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let switch_id = new_switch(&env, None, None).await?;
+
+    // Force delete without deleting interfaces.
+    let response = env
+        .api
+        .admin_force_delete_switch(tonic::Request::new(AdminForceDeleteSwitchRequest {
+            switch_id: Some(switch_id),
+            delete_interfaces: false,
+        }))
+        .await?
+        .into_inner();
+
+    assert_eq!(response.switch_id, switch_id.to_string());
+    assert_eq!(response.interfaces_deleted, 0);
+
+    // Verify the switch is completely gone (not just soft-deleted).
+    let find_result = env
+        .api
+        .find_switches(tonic::Request::new(SwitchQuery {
+            name: None,
+            switch_id: Some(switch_id),
+        }))
+        .await?
+        .into_inner();
+
+    assert!(
+        find_result.switches.is_empty(),
+        "Switch should be hard-deleted"
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_force_delete_switch_not_found(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let non_existent_id = SwitchId::from(uuid::Uuid::new_v4());
+    let result = env
+        .api
+        .admin_force_delete_switch(tonic::Request::new(AdminForceDeleteSwitchRequest {
+            switch_id: Some(non_existent_id),
+            delete_interfaces: false,
+        }))
+        .await;
+
+    assert!(result.is_err());
+    assert_eq!(result.unwrap_err().code(), Code::NotFound);
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_force_delete_switch_already_soft_deleted(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let switch_id = new_switch(&env, None, None).await?;
+
+    // Soft-delete the switch first.
+    env.api
+        .delete_switch(tonic::Request::new(SwitchDeletionRequest {
+            id: Some(switch_id),
+        }))
+        .await?;
+
+    // Force-delete should still work on a soft-deleted switch.
+    let response = env
+        .api
+        .admin_force_delete_switch(tonic::Request::new(AdminForceDeleteSwitchRequest {
+            switch_id: Some(switch_id),
+            delete_interfaces: false,
+        }))
+        .await?
+        .into_inner();
+
+    assert_eq!(response.switch_id, switch_id.to_string());
+
+    // Verify completely gone.
+    let find_result = env
+        .api
+        .find_switches(tonic::Request::new(SwitchQuery {
+            name: None,
+            switch_id: Some(switch_id),
+        }))
+        .await?
+        .into_inner();
+
+    assert!(
+        find_result.switches.is_empty(),
+        "Switch should be hard-deleted after force delete"
     );
 
     Ok(())

@@ -36,6 +36,7 @@ use serde::ser::Error;
 use serde_json::{Value, json};
 use tokio_stream::Stream;
 
+use crate::forge_agent_control_response::LegacyAction;
 pub use crate::protos::common::{self, Uuid};
 pub use crate::protos::dns::{self};
 pub use crate::protos::forge::machine_credentials_update_request::CredentialPurpose;
@@ -61,7 +62,11 @@ pub use crate::protos::{fmds, health, site_explorer};
 
 pub mod errors;
 pub mod forge_tls_client;
+pub mod libmlx;
+pub mod network;
 pub mod protos;
+pub mod secrets;
+pub mod utils;
 
 #[cfg(feature = "cli")]
 pub mod admin_cli;
@@ -491,11 +496,11 @@ impl TryFrom<health::HealthReport> for health_report::HealthReport {
     }
 }
 
-impl From<forge::OverrideMode> for health_report::OverrideMode {
-    fn from(value: forge::OverrideMode) -> Self {
+impl From<forge::HealthReportApplyMode> for health_report::HealthReportApplyMode {
+    fn from(value: forge::HealthReportApplyMode) -> Self {
         match value {
-            forge::OverrideMode::Merge => health_report::OverrideMode::Merge,
-            forge::OverrideMode::Replace => health_report::OverrideMode::Replace,
+            forge::HealthReportApplyMode::Merge => health_report::HealthReportApplyMode::Merge,
+            forge::HealthReportApplyMode::Replace => health_report::HealthReportApplyMode::Replace,
         }
     }
 }
@@ -531,7 +536,7 @@ impl From<JsonDnsResourceRecord> for Value {
     }
 }
 
-impl FromStr for forge::OperatingSystem {
+impl FromStr for forge::InstanceOperatingSystemConfig {
     type Err = RpcDataConversionError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -784,6 +789,97 @@ impl forge::ScoutStreamApiBoundMessage {
     }
 }
 
+impl forge::ForgeAgentControlResponse {
+    pub fn noop() -> Self {
+        Self {
+            action: Some(forge_agent_control_response::Action::noop()),
+            legacy_action: LegacyAction::Noop as i32,
+            data: None,
+        }
+    }
+
+    pub fn reset() -> Self {
+        Self {
+            action: Some(forge_agent_control_response::Action::reset()),
+            legacy_action: LegacyAction::Reset as i32,
+            data: None,
+        }
+    }
+
+    pub fn retry() -> Self {
+        Self {
+            action: Some(forge_agent_control_response::Action::retry()),
+            legacy_action: LegacyAction::Retry as i32,
+            data: None,
+        }
+    }
+
+    pub fn measure() -> Self {
+        Self {
+            action: Some(forge_agent_control_response::Action::measure()),
+            legacy_action: LegacyAction::Measure as i32,
+            data: None,
+        }
+    }
+
+    pub fn discovery() -> Self {
+        Self {
+            action: Some(forge_agent_control_response::Action::discovery()),
+            legacy_action: LegacyAction::Discovery as i32,
+            data: None,
+        }
+    }
+
+    pub fn log_error() -> Self {
+        Self {
+            action: Some(forge_agent_control_response::Action::log_error()),
+            legacy_action: LegacyAction::Logerror as i32,
+            data: None,
+        }
+    }
+}
+
+impl forge_agent_control_response::Action {
+    pub fn noop() -> Self {
+        Self::Noop(forge_agent_control_response::Noop {})
+    }
+
+    pub fn reset() -> Self {
+        Self::Reset(forge_agent_control_response::Reset {})
+    }
+
+    pub fn retry() -> Self {
+        Self::Retry(forge_agent_control_response::Retry {})
+    }
+
+    pub fn measure() -> Self {
+        Self::Measure(forge_agent_control_response::Measure {})
+    }
+
+    pub fn discovery() -> Self {
+        Self::Discovery(forge_agent_control_response::Discovery {})
+    }
+
+    pub fn log_error() -> Self {
+        Self::LogError(forge_agent_control_response::LogError {})
+    }
+
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Noop(_) => "NOOP",
+            Self::Reset(_) => "RESET",
+            Self::Discovery(_) => "DISCOVERY",
+            Self::Rebuild(_) => "REBUILD",
+            Self::Retry(_) => "RETRY",
+            Self::Measure(_) => "MEASURE",
+            Self::LogError(_) => "LOGERROR",
+            Self::MachineValidation(_) => "MACHINE_VALIDATION",
+            Self::MlxAction(_) => "MLX_ACTION",
+            Self::FirmwareUpgrade(_) => "FIRMWARE_UPGRADE",
+        }
+    }
+}
+
 #[cfg(feature = "cli")]
 // This impl allows us to use the RPC RouteServerSourceType type
 // as a first class enum with clap, for the purpose of allowing
@@ -807,8 +903,8 @@ mod tests {
 
     use carbide_uuid::machine::MachineId;
 
-    use self::forge::operating_system::Variant;
-    use self::forge::{InlineIpxe, OperatingSystem};
+    use self::forge::instance_operating_system_config::Variant;
+    use self::forge::{InlineIpxe, InstanceOperatingSystemConfig};
     use super::*;
     use crate::protos::dns::{Domain, Metadata};
 
@@ -846,7 +942,7 @@ mod tests {
 
     #[test]
     fn test_serialize_os() {
-        let os = OperatingSystem {
+        let os = InstanceOperatingSystemConfig {
             phone_home_enabled: true,
             run_provisioning_instructions_on_every_boot: true,
             user_data: Some("def".to_string()),

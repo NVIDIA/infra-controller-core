@@ -19,79 +19,73 @@ use std::str::FromStr;
 
 use db::machine::update_dpu_agent_health_report;
 use db::{self};
-use health_report::OverrideMode;
+use health_report::HealthReportApplyMode;
 use model::machine::health_override::HARDWARE_HEALTH_OVERRIDE_PREFIX;
 use model::machine::{HardwareHealthReportsConfig, HostHealthConfig, LoadSnapshotOptions};
-use rpc::forge::HealthOverrideOrigin;
+use rpc::forge::HealthSourceOrigin;
 use rpc::forge::forge_server::Forge;
 use tonic::Request;
 
 use crate::tests::common::api_fixtures::{
     TestEnv, TestEnvOverrides, create_managed_host, create_test_env_with_overrides, get_config,
-    network_configured_with_health, remove_health_report_override, send_health_report_override,
+    network_configured_with_health, remove_health_report_entry, send_health_report_entry,
     simulate_hardware_health_report,
 };
 
-/// Tests whether health reports can be stored if their timestamp is newer or equal
-/// to the last received report - and are dropped otherwise.
+/// Tests whether DPU agent health reports are stored as a standard health source.
 #[crate::sqlx_test]
 async fn test_update_dpu_agent_health_report(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_env(pool).await;
-    let (_host_machine_id, dpu_machine_id) = create_managed_host(&env).await.into();
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await.into();
 
     // Start with a clean slate
-    sqlx::query("UPDATE machines SET dpu_agent_health_report=NULL where id=$1")
-        .bind(dpu_machine_id.to_string())
-        .execute(&env.pool)
-        .await?;
+    let mut txn = env.pool.begin().await?;
+    db::machine::remove_health_report(
+        &mut txn,
+        &dpu_machine_id,
+        HealthReportApplyMode::Merge,
+        health_report::HealthReport::DPU_AGENT_SOURCE,
+    )
+    .await?;
+    txn.commit().await?;
 
     let mut health = hr("dpu-agent", vec![], vec![("Failure1", None, "Failure1")]);
-    // Start with a health report without timestamp. That update should also work
-    health.observed_at = None;
-    println!("Doing initial update");
+    health.observed_at = Some("2025-03-19T18:22:01+00:00".parse()?);
     let mut txn = env.pool.begin().await?;
     update_dpu_agent_health_report(&mut txn, &dpu_machine_id, &health).await?;
     txn.commit().await?;
 
-    let mut time: chrono::DateTime<chrono::Utc> = "2025-03-19T18:22:02+00:00".parse()?;
+    check_reports_equal(
+        "forge-dpu-agent",
+        load_snapshot(&env, &host_machine_id).await?.dpu_snapshots[0]
+            .dpu_agent_health_report()
+            .cloned()
+            .unwrap(),
+        health,
+    );
 
-    // Updating time to go forward should allow updates. Go for a total of 1s in updates
-    for _ in 0..51 {
-        time += chrono::Duration::milliseconds(20);
-        health.observed_at = Some(time);
-        println!("Health: {}, {}", time, time.to_rfc3339());
-        println!("{}", serde_json::to_string_pretty(&health).unwrap());
-
-        let mut txn = env.pool.begin().await?;
-        update_dpu_agent_health_report(&mut txn, &dpu_machine_id, &health).await?;
-        txn.commit().await?;
-    }
-
-    // Updating at the same time is allowed
-    println!("Update same time");
+    let mut newer_health = hr("dpu-agent", vec![], vec![("Failure2", None, "Failure2")]);
+    newer_health.observed_at = Some("2025-03-19T18:22:03+00:00".parse()?);
     let mut txn = env.pool.begin().await?;
-    update_dpu_agent_health_report(&mut txn, &dpu_machine_id, &health).await?;
+    update_dpu_agent_health_report(&mut txn, &dpu_machine_id, &newer_health).await?;
     txn.commit().await?;
 
-    // Updating time to go backwards should not allow updates. Go for a total of 1s in updates
+    let mut older_health = hr("dpu-agent", vec![], vec![("Failure3", None, "Failure3")]);
+    older_health.observed_at = Some("2025-03-19T18:22:02+00:00".parse()?);
+    let mut txn = env.pool.begin().await?;
+    update_dpu_agent_health_report(&mut txn, &dpu_machine_id, &older_health).await?;
+    txn.commit().await?;
 
-    println!("Go backwards in time");
-    for _ in 0..51 {
-        time -= chrono::Duration::milliseconds(20);
-        health.observed_at = Some(time);
-        println!("Health: {}, {}", time, time.to_rfc3339());
-        println!("{}", serde_json::to_string_pretty(&health).unwrap());
-
-        let mut txn = env.pool.begin().await?;
-        assert!(
-            update_dpu_agent_health_report(&mut txn, &dpu_machine_id, &health)
-                .await
-                .is_err()
-        );
-        txn.commit().await?;
-    }
+    check_reports_equal(
+        "forge-dpu-agent",
+        load_snapshot(&env, &host_machine_id).await?.dpu_snapshots[0]
+            .dpu_agent_health_report()
+            .cloned()
+            .unwrap(),
+        older_health,
+    );
 
     Ok(())
 }
@@ -108,8 +102,8 @@ async fn test_machine_health_reporting(
     check_reports_equal(
         "forge-dpu-agent",
         load_snapshot(&env, &host_machine_id).await?.dpu_snapshots[0]
-            .dpu_agent_health_report
-            .clone()
+            .dpu_agent_health_report()
+            .cloned()
             .unwrap(),
         health_report::HealthReport::empty("".to_string()),
     );
@@ -118,7 +112,7 @@ async fn test_machine_health_reporting(
         load_snapshot(&env, &host_machine_id)
             .await?
             .host_snapshot
-            .health_report_overrides
+            .health_reports
             .merges
             .values()
             .next()
@@ -129,9 +123,9 @@ async fn test_machine_health_reporting(
 
     let m = find_machine(&env, &host_machine_id).await;
     assert_eq!(
-        m.health_overrides,
-        vec![HealthOverrideOrigin {
-            mode: OverrideMode::Merge as i32,
+        m.health_sources,
+        vec![HealthSourceOrigin {
+            mode: HealthReportApplyMode::Merge as i32,
             source: format!("{HARDWARE_HEALTH_OVERRIDE_PREFIX}health")
         }]
     );
@@ -154,8 +148,8 @@ async fn test_machine_health_reporting(
     check_reports_equal(
         "forge-dpu-agent",
         load_snapshot(&env, &host_machine_id).await?.dpu_snapshots[0]
-            .dpu_agent_health_report
-            .clone()
+            .dpu_agent_health_report()
+            .cloned()
             .unwrap(),
         dpu_health.clone(),
     );
@@ -193,7 +187,7 @@ async fn test_hardware_health_reporting(
         load_snapshot(&env, &host_machine_id)
             .await?
             .host_snapshot
-            .health_report_overrides
+            .health_reports
             .merges
             .values()
             .next()
@@ -213,7 +207,7 @@ async fn test_hardware_health_reporting(
     let stored_report = load_snapshot(&env, &host_machine_id)
         .await?
         .host_snapshot
-        .health_report_overrides
+        .health_reports
         .merges
         .values()
         .next()
@@ -304,7 +298,12 @@ async fn test_machine_health_aggregation(
         vec![],
         vec![("Fan", Some("TestFan"), "Reason")],
     );
-    send_health_report_override(&env, &host_machine_id, (r#override, OverrideMode::Merge)).await;
+    send_health_report_entry(
+        &env,
+        &host_machine_id,
+        (r#override, HealthReportApplyMode::Merge),
+    )
+    .await;
 
     // Override is visible in metrics - requires a statecontroller iteration to update metrics
     env.run_machine_state_controller_iteration().await;
@@ -324,14 +323,14 @@ async fn test_machine_health_aggregation(
 
     let m = find_machine(&env, &host_machine_id).await;
     assert_eq!(
-        m.health_overrides,
+        m.health_sources,
         vec![
-            HealthOverrideOrigin {
-                mode: OverrideMode::Merge as i32,
+            HealthSourceOrigin {
+                mode: HealthReportApplyMode::Merge as i32,
                 source: "add-host-failure".to_string()
             },
-            HealthOverrideOrigin {
-                mode: OverrideMode::Merge as i32,
+            HealthSourceOrigin {
+                mode: HealthReportApplyMode::Merge as i32,
                 source: "hardware-health.health".to_string()
             }
         ]
@@ -356,10 +355,10 @@ async fn test_machine_health_aggregation(
 
     // Replace the machine's health report entirely with a blank report.
     let r#override = hr("replace-host-report", vec![], vec![]);
-    send_health_report_override(
+    send_health_report_entry(
         &env,
         &host_machine_id,
-        (r#override.clone(), OverrideMode::Replace),
+        (r#override.clone(), HealthReportApplyMode::Replace),
     )
     .await;
     // Override is visible in metrics - requires a statecontroller iteration to update metrics
@@ -380,18 +379,18 @@ async fn test_machine_health_aggregation(
 
     let m = find_machine(&env, &host_machine_id).await;
     assert_eq!(
-        m.health_overrides,
+        m.health_sources,
         vec![
-            HealthOverrideOrigin {
-                mode: OverrideMode::Merge as i32,
+            HealthSourceOrigin {
+                mode: HealthReportApplyMode::Merge as i32,
                 source: "add-host-failure".to_string()
             },
-            HealthOverrideOrigin {
-                mode: OverrideMode::Merge as i32,
+            HealthSourceOrigin {
+                mode: HealthReportApplyMode::Merge as i32,
                 source: "hardware-health.health".to_string()
             },
-            HealthOverrideOrigin {
-                mode: OverrideMode::Replace as i32,
+            HealthSourceOrigin {
+                mode: HealthReportApplyMode::Replace as i32,
                 source: "replace-host-report".to_string()
             }
         ]
@@ -410,7 +409,7 @@ async fn test_machine_health_aggregation(
     check_reports_equal("aggregate-host-health", aggregate_health, r#override);
 
     // Remove the blank report override
-    remove_health_report_override(&env, &host_machine_id, "replace-host-report".to_string()).await;
+    remove_health_report_entry(&env, &host_machine_id, "replace-host-report".to_string()).await;
     let aggregate_health = load_health_via_find_machines_by_ids(&env, &host_machine_id)
         .await
         .unwrap();
@@ -439,10 +438,10 @@ async fn test_machine_health_history(pool: sqlx::PgPool) -> Result<(), Box<dyn s
     );
     health1.observed_at = Some(chrono::Utc::now());
     health1.alerts[0].in_alert_since = Some(chrono::Utc::now());
-    send_health_report_override(
+    send_health_report_entry(
         &env,
         &host_machine_id,
-        (health1.clone(), OverrideMode::Replace),
+        (health1.clone(), HealthReportApplyMode::Replace),
     )
     .await;
 
@@ -455,10 +454,10 @@ async fn test_machine_health_history(pool: sqlx::PgPool) -> Result<(), Box<dyn s
     let mut health1_newdate = health1.clone();
     health1_newdate.observed_at = Some(chrono::Utc::now() + chrono::Duration::minutes(5));
     health1.alerts[0].in_alert_since = Some(chrono::Utc::now() + chrono::Duration::minutes(3));
-    send_health_report_override(
+    send_health_report_entry(
         &env,
         &host_machine_id,
-        (health1_newdate.clone(), OverrideMode::Replace),
+        (health1_newdate.clone(), HealthReportApplyMode::Replace),
     )
     .await;
 
@@ -473,10 +472,10 @@ async fn test_machine_health_history(pool: sqlx::PgPool) -> Result<(), Box<dyn s
             ("Fan", Some("TestFan2"), "Other Reason"),
         ],
     );
-    send_health_report_override(
+    send_health_report_entry(
         &env,
         &host_machine_id,
-        (health2.clone(), OverrideMode::Replace),
+        (health2.clone(), HealthReportApplyMode::Replace),
     )
     .await;
 
@@ -486,20 +485,21 @@ async fn test_machine_health_history(pool: sqlx::PgPool) -> Result<(), Box<dyn s
     env.run_machine_state_controller_iteration().await;
 
     let health3 = hr("test-report-3", vec![], vec![]);
-    remove_health_report_override(&env, &host_machine_id, "test-report-1".to_string()).await;
+    remove_health_report_entry(&env, &host_machine_id, "test-report-1".to_string()).await;
     env.run_machine_state_controller_iteration().await;
     env.run_machine_state_controller_iteration().await;
 
     // Check the health history
     let mut records = load_host_health_history(&env, &host_machine_id).await;
-    let mut records = records.split_off(num_ignored_records);
+    let records_len = records.len();
+    let _ = records.split_off(records_len.saturating_sub(num_ignored_records));
 
     assert_eq!(records.len(), 3);
 
     check_reports_equal(
         "aggregate-host-health",
         records.remove(0).health.unwrap().try_into().unwrap(),
-        health1,
+        health3,
     );
     check_reports_equal(
         "aggregate-host-health",
@@ -509,32 +509,178 @@ async fn test_machine_health_history(pool: sqlx::PgPool) -> Result<(), Box<dyn s
     check_reports_equal(
         "aggregate-host-health",
         records.remove(0).health.unwrap().try_into().unwrap(),
-        health3,
+        health1,
+    );
+
+    // Test limit
+    const EXPECTED_LIMIT: usize = 250;
+    for i in 0..EXPECTED_LIMIT + 10 {
+        let health = hr(
+            "override",
+            vec![],
+            vec![(&format!("Fan {i}"), None, "Reason")],
+        );
+        send_health_report_entry(
+            &env,
+            &host_machine_id,
+            (health.clone(), HealthReportApplyMode::Replace),
+        )
+        .await;
+        env.run_machine_state_controller_iteration().await;
+    }
+    let records = load_host_health_history(&env, &host_machine_id).await;
+    assert_eq!(records.len(), EXPECTED_LIMIT);
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_dpu_replace_override_replaces_dpu_health_contribution(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_env(pool).await;
+
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await.into();
+    let merge_report = hr(
+        "manual-dpu-merge",
+        vec![],
+        vec![("ManualDpuMerge", Some("DPU"), "Manual DPU merge alert")],
+    );
+    send_health_report_entry(
+        &env,
+        &dpu_machine_id,
+        (merge_report, HealthReportApplyMode::Merge),
+    )
+    .await;
+
+    let host_health = load_health_via_find_machines_by_ids(&env, &host_machine_id)
+        .await
+        .unwrap();
+    assert!(
+        host_health
+            .alerts
+            .iter()
+            .any(|alert| alert.id.as_str() == "ManualDpuMerge")
+    );
+
+    let replace_report = hr(
+        "manual-dpu-replace",
+        vec![],
+        vec![("ManualDpuReplace", Some("DPU"), "Manual DPU replace alert")],
+    );
+    send_health_report_entry(
+        &env,
+        &dpu_machine_id,
+        (replace_report, HealthReportApplyMode::Replace),
+    )
+    .await;
+
+    let dpu_health = load_health_via_find_machines_by_ids(&env, &dpu_machine_id)
+        .await
+        .unwrap();
+    assert!(
+        dpu_health
+            .alerts
+            .iter()
+            .any(|alert| alert.id.as_str() == "ManualDpuReplace")
+    );
+    assert!(
+        !dpu_health
+            .alerts
+            .iter()
+            .any(|alert| alert.id.as_str() == "ManualDpuMerge")
+    );
+
+    let host_health = load_health_via_find_machines_by_ids(&env, &host_machine_id)
+        .await
+        .unwrap();
+    assert!(
+        host_health
+            .alerts
+            .iter()
+            .any(|alert| alert.id.as_str() == "ManualDpuReplace")
+    );
+    assert!(
+        !host_health
+            .alerts
+            .iter()
+            .any(|alert| alert.id.as_str() == "ManualDpuMerge")
+    );
+
+    remove_health_report_entry(&env, &dpu_machine_id, "manual-dpu-replace".to_string()).await;
+
+    let host_health = load_health_via_find_machines_by_ids(&env, &host_machine_id)
+        .await
+        .unwrap();
+    assert!(
+        host_health
+            .alerts
+            .iter()
+            .any(|alert| alert.id.as_str() == "ManualDpuMerge")
+    );
+    assert!(
+        !host_health
+            .alerts
+            .iter()
+            .any(|alert| alert.id.as_str() == "ManualDpuReplace")
     );
 
     Ok(())
 }
 
 #[crate::sqlx_test]
-async fn test_attempt_dpu_override(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+async fn test_can_manage_dpu_merge_health_report(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_env(pool).await;
 
-    let (_, dpu_machine_id) = create_managed_host(&env).await.into();
-    use rpc::forge::forge_server::Forge;
-    use tonic::Request;
-    let _ = env
-        .api
-        .insert_health_report_override(Request::new(
-            rpc::forge::InsertHealthReportOverrideRequest {
-                machine_id: Some(dpu_machine_id),
-                r#override: Some(rpc::forge::HealthReportOverride {
-                    report: Some(health_report::HealthReport::empty("".to_string()).into()),
-                    mode: health_report::OverrideMode::Replace as i32,
-                }),
-            },
-        ))
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await.into();
+    let report = hr(
+        "manual-dpu-alert",
+        vec![],
+        vec![("ManualDpuAlert", Some("DPU"), "Manual DPU alert")],
+    );
+
+    send_health_report_entry(
+        &env,
+        &dpu_machine_id,
+        (report, HealthReportApplyMode::Merge),
+    )
+    .await;
+
+    let dpu = find_machine(&env, &dpu_machine_id).await;
+    assert!(dpu.health_sources.iter().any(|source| {
+        source.mode == HealthReportApplyMode::Merge as i32 && source.source == "manual-dpu-alert"
+    }));
+
+    let host_health = load_health_via_find_machines_by_ids(&env, &host_machine_id)
         .await
-        .expect_err("Should not be able to add OverrideMode::Replace on dpu");
+        .unwrap();
+    assert!(
+        host_health
+            .alerts
+            .iter()
+            .any(|alert| alert.id.as_str() == "ManualDpuAlert")
+    );
+
+    remove_health_report_entry(&env, &dpu_machine_id, "manual-dpu-alert".to_string()).await;
+
+    let dpu = find_machine(&env, &dpu_machine_id).await;
+    assert!(
+        !dpu.health_sources
+            .iter()
+            .any(|source| source.source == "manual-dpu-alert")
+    );
+
+    let host_health = load_health_via_find_machines_by_ids(&env, &host_machine_id)
+        .await
+        .unwrap();
+    assert!(
+        !host_health
+            .alerts
+            .iter()
+            .any(|alert| alert.id.as_str() == "ManualDpuAlert")
+    );
 
     Ok(())
 }
@@ -558,15 +704,13 @@ async fn test_double_insert(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     use tonic::Request;
     let _ = env
         .api
-        .insert_health_report_override(Request::new(
-            rpc::forge::InsertHealthReportOverrideRequest {
-                machine_id: Some(host_machine_id),
-                r#override: Some(rpc::forge::HealthReportOverride {
-                    report: Some(health_report::HealthReport::empty("over".to_string()).into()),
-                    mode: health_report::OverrideMode::Replace as i32,
-                }),
-            },
-        ))
+        .insert_machine_health_report(Request::new(rpc::forge::InsertMachineHealthReportRequest {
+            machine_id: Some(host_machine_id),
+            health_report_entry: Some(rpc::forge::HealthReportEntry {
+                report: Some(health_report::HealthReport::empty("over".to_string()).into()),
+                mode: health_report::HealthReportApplyMode::Replace as i32,
+            }),
+        }))
         .await
         .unwrap();
 
@@ -582,27 +726,25 @@ async fn test_double_insert(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     let merge_hr = hr("over", vec![], vec![("Fan2", None, "")]);
     let _ = env
         .api
-        .insert_health_report_override(Request::new(
-            rpc::forge::InsertHealthReportOverrideRequest {
-                machine_id: Some(host_machine_id),
-                r#override: Some(rpc::forge::HealthReportOverride {
-                    report: Some(merge_hr.clone().into()),
-                    mode: health_report::OverrideMode::Merge as i32,
-                }),
-            },
-        ))
+        .insert_machine_health_report(Request::new(rpc::forge::InsertMachineHealthReportRequest {
+            machine_id: Some(host_machine_id),
+            health_report_entry: Some(rpc::forge::HealthReportEntry {
+                report: Some(merge_hr.clone().into()),
+                mode: health_report::HealthReportApplyMode::Merge as i32,
+            }),
+        }))
         .await
         .unwrap();
     let m = find_machine(&env, &host_machine_id).await;
     assert_eq!(
-        m.health_overrides,
+        m.health_sources,
         vec![
-            HealthOverrideOrigin {
-                mode: OverrideMode::Merge as i32,
+            HealthSourceOrigin {
+                mode: HealthReportApplyMode::Merge as i32,
                 source: "hardware-health.health".to_string()
             },
-            HealthOverrideOrigin {
-                mode: OverrideMode::Merge as i32,
+            HealthSourceOrigin {
+                mode: HealthReportApplyMode::Merge as i32,
                 source: "over".to_string()
             }
         ]
@@ -655,7 +797,12 @@ async fn test_count_unhealthy_nonupgrading_host_machines(
         vec![],
         vec![("Fan", Some("TestFan"), "Reason")],
     );
-    send_health_report_override(&env, &host_machine_id, (r#override, OverrideMode::Merge)).await;
+    send_health_report_entry(
+        &env,
+        &host_machine_id,
+        (r#override, HealthReportApplyMode::Merge),
+    )
+    .await;
     let health2 = hr(
         "test-report-1",
         vec![],
@@ -664,10 +811,10 @@ async fn test_count_unhealthy_nonupgrading_host_machines(
             ("Fan", Some("TestFan2"), "Other Reason"),
         ],
     );
-    send_health_report_override(
+    send_health_report_entry(
         &env,
         &host_machine_id,
-        (health2.clone(), OverrideMode::Replace),
+        (health2.clone(), HealthReportApplyMode::Replace),
     )
     .await;
 
@@ -709,8 +856,8 @@ async fn create_env(pool: sqlx::PgPool) -> TestEnv {
 /// Creates a health report.
 fn hr(
     source: &str,
-    successes: Vec<(&'static str, Option<&'static str>)>,
-    alerts: Vec<(&'static str, Option<&'static str>, &'static str)>,
+    successes: Vec<(&str, Option<&str>)>,
+    alerts: Vec<(&str, Option<&str>, &str)>,
 ) -> health_report::HealthReport {
     health_report::HealthReport {
         source: source.to_string(),
@@ -781,7 +928,7 @@ async fn find_machine(
 async fn load_host_health_history(
     env: &TestEnv,
     machine_id: &::carbide_uuid::machine::MachineId,
-) -> Vec<::rpc::forge::MachineHealthHistoryRecord> {
+) -> Vec<::rpc::forge::HealthHistoryRecord> {
     env.api
         .find_machine_health_histories(tonic::Request::new(
             ::rpc::forge::MachineHealthHistoriesRequest {
@@ -871,7 +1018,7 @@ async fn load_health_alerts_by_time_range(
     machine_id: &::carbide_uuid::machine::MachineId,
     start_time: chrono::DateTime<chrono::Utc>,
     end_time: chrono::DateTime<chrono::Utc>,
-) -> Vec<::rpc::forge::MachineHealthHistoryRecord> {
+) -> Vec<::rpc::forge::HealthHistoryRecord> {
     let response = env
         .api
         .find_machine_health_histories(tonic::Request::new(
@@ -899,7 +1046,7 @@ async fn insert_health_and_process(
     machine_id: &::carbide_uuid::machine::MachineId,
     health: health_report::HealthReport,
 ) {
-    send_health_report_override(env, machine_id, (health, OverrideMode::Replace)).await;
+    send_health_report_entry(env, machine_id, (health, HealthReportApplyMode::Replace)).await;
     env.run_machine_state_controller_iteration().await;
 }
 
@@ -930,10 +1077,10 @@ async fn test_tenant_reported_issue_health_override_template(
     };
 
     // Apply the override
-    send_health_report_override(
+    send_health_report_entry(
         &env,
         &host_machine_id,
-        (tenant_issue_override.clone(), OverrideMode::Merge),
+        (tenant_issue_override.clone(), HealthReportApplyMode::Merge),
     )
     .await;
 
@@ -941,9 +1088,12 @@ async fn test_tenant_reported_issue_health_override_template(
     let machine = find_machine(&env, &host_machine_id).await;
 
     // Check that the override was stored
-    assert_eq!(machine.health_overrides.len(), 2);
-    assert_eq!(machine.health_overrides[1].mode, OverrideMode::Merge as i32);
-    assert_eq!(machine.health_overrides[1].source, "tenant-reported-issue");
+    assert_eq!(machine.health_sources.len(), 2);
+    assert_eq!(
+        machine.health_sources[1].mode,
+        HealthReportApplyMode::Merge as i32
+    );
+    assert_eq!(machine.health_sources[1].source, "tenant-reported-issue");
 
     // Verify aggregate health includes the override
     let aggregate_health = aggregate(machine).unwrap();
@@ -1005,10 +1155,13 @@ async fn test_request_repair_health_override_template(
     };
 
     // Apply the override
-    send_health_report_override(
+    send_health_report_entry(
         &env,
         &host_machine_id,
-        (repair_request_override.clone(), OverrideMode::Merge),
+        (
+            repair_request_override.clone(),
+            HealthReportApplyMode::Merge,
+        ),
     )
     .await;
 
@@ -1016,9 +1169,12 @@ async fn test_request_repair_health_override_template(
     let machine = find_machine(&env, &host_machine_id).await;
 
     // Check that the override was stored
-    assert_eq!(machine.health_overrides.len(), 2);
-    assert_eq!(machine.health_overrides[1].mode, OverrideMode::Merge as i32);
-    assert_eq!(machine.health_overrides[1].source, "repair-request");
+    assert_eq!(machine.health_sources.len(), 2);
+    assert_eq!(
+        machine.health_sources[1].mode,
+        HealthReportApplyMode::Merge as i32
+    );
+    assert_eq!(machine.health_sources[1].source, "repair-request");
 
     // Verify aggregate health includes the override
     let aggregate_health = aggregate(machine).unwrap();
@@ -1094,17 +1250,17 @@ async fn test_tenant_reported_issue_and_request_repair_combined(
     };
 
     // Apply both overrides
-    send_health_report_override(
+    send_health_report_entry(
         &env,
         &host_machine_id,
-        (tenant_issue_override, OverrideMode::Merge),
+        (tenant_issue_override, HealthReportApplyMode::Merge),
     )
     .await;
 
-    send_health_report_override(
+    send_health_report_entry(
         &env,
         &host_machine_id,
-        (repair_request_override, OverrideMode::Merge),
+        (repair_request_override, HealthReportApplyMode::Merge),
     )
     .await;
 
@@ -1115,9 +1271,9 @@ async fn test_tenant_reported_issue_and_request_repair_combined(
     let aggregate_health = aggregate(machine.clone()).unwrap();
 
     // Check that both overrides were stored
-    assert_eq!(machine.health_overrides.len(), 3);
+    assert_eq!(machine.health_sources.len(), 3);
     let sources: Vec<String> = machine
-        .health_overrides
+        .health_sources
         .iter()
         .map(|o| o.source.clone())
         .collect();
@@ -1125,8 +1281,8 @@ async fn test_tenant_reported_issue_and_request_repair_combined(
     assert!(sources.contains(&"repair-request".to_string()));
 
     // All should be merge mode
-    for override_entry in &machine.health_overrides {
-        assert_eq!(override_entry.mode, OverrideMode::Merge as i32);
+    for override_entry in &machine.health_sources {
+        assert_eq!(override_entry.mode, HealthReportApplyMode::Merge as i32);
     }
     assert_eq!(aggregate_health.alerts.len(), 2);
 
@@ -1210,14 +1366,12 @@ async fn test_find_health_alerts_by_time_range(
 
     assert_eq!(all_alerts.len(), 3, "Should have 3 alert records");
 
-    // Verify first record has 2 alerts (no successes!)
-    let health0 = all_alerts[0].health.as_ref().unwrap();
-    assert_eq!(health0.alerts.len(), 2);
-    assert_eq!(health0.alerts[0].id, "Failure1");
-    assert_eq!(health0.alerts[0].target, Some("TestComponent1".to_string()));
-    assert_eq!(health0.alerts[0].message, "First test failure");
-    assert_eq!(health0.alerts[1].id, "Failure2");
-    assert_eq!(health0.source, "aggregate-host-health");
+    // Verify first record has 1 alert
+    let health2 = all_alerts[0].health.as_ref().unwrap();
+    assert_eq!(health2.alerts.len(), 1);
+    assert_eq!(health2.alerts[0].id, "Failure3");
+    assert_eq!(health2.alerts[0].target, Some("TestComponent3".to_string()));
+    assert_eq!(health2.source, "aggregate-host-health");
 
     // Verify second record has 1 alert (success filtered out!)
     let health1 = all_alerts[1].health.as_ref().unwrap();
@@ -1227,12 +1381,14 @@ async fn test_find_health_alerts_by_time_range(
     assert_eq!(health1.alerts[0].message, "Fan failure detected");
     assert_eq!(health1.source, "aggregate-host-health");
 
-    // Verify third record has 1 alert
-    let health2 = all_alerts[2].health.as_ref().unwrap();
-    assert_eq!(health2.alerts.len(), 1);
-    assert_eq!(health2.alerts[0].id, "Failure3");
-    assert_eq!(health2.alerts[0].target, Some("TestComponent3".to_string()));
-    assert_eq!(health2.source, "aggregate-host-health");
+    // Verify third record has 2 alerts (no successes!)
+    let health0 = all_alerts[2].health.as_ref().unwrap();
+    assert_eq!(health0.alerts.len(), 2);
+    assert_eq!(health0.alerts[0].id, "Failure1");
+    assert_eq!(health0.alerts[0].target, Some("TestComponent1".to_string()));
+    assert_eq!(health0.alerts[0].message, "First test failure");
+    assert_eq!(health0.alerts[1].id, "Failure2");
+    assert_eq!(health0.source, "aggregate-host-health");
 
     // TEST 2: Query MIDDLE time range only (should get only second record)
     let middle_alerts = load_health_alerts_by_time_range(

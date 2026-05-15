@@ -16,6 +16,7 @@
  */
 
 mod firmware;
+mod leak_detector;
 mod logs;
 mod nmxt;
 mod nvue;
@@ -23,8 +24,13 @@ mod runtime;
 mod sensors;
 
 pub use firmware::{FirmwareCollector, FirmwareCollectorConfig};
-pub use logs::{LogFileWriter, LogsCollector, LogsCollectorConfig, create_log_file_writer};
+pub use leak_detector::{LeakDetectorCollector, LeakDetectorCollectorConfig};
+pub use logs::{LogsCollector, LogsCollectorConfig, SseLogCollector, SseLogCollectorConfig};
 pub use nmxt::{NmxtCollector, NmxtCollectorConfig};
 pub use nvue::rest::collector::{NvueRestCollector, NvueRestCollectorConfig};
-pub use runtime::{Collector, CollectorStartContext, IterationResult, PeriodicCollector};
+pub use runtime::{
+    BackoffConfig, Collector, CollectorStartContext, EventStream, ExponentialBackoff,
+    IterationResult, PeriodicCollector, StreamMetrics, StreamingCollector,
+    StreamingCollectorStartContext, open_sse_stream,
+};
 pub use sensors::{SensorCollector, SensorCollectorConfig};

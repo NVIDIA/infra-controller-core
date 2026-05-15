@@ -56,6 +56,9 @@ impl Default for HealthReport {
 }
 
 impl HealthReport {
+    pub const DPU_AGENT_SOURCE: &str = "forge-dpu-agent";
+    pub const MACHINE_VALIDATION_SOURCE: &str = "machine-validation";
+    pub const SITE_EXPLORER_SOURCE: &str = "site-explorer";
     pub const SKU_VALIDATION_SOURCE: &str = "sku-validation";
     pub const QUARANTINE_SOURCE: &str = "quarantine";
 
@@ -196,20 +199,6 @@ impl HealthReport {
     }
 
     /// Returns a health report which indicates that a machine failed SKU validation
-    pub fn sku_validation_success() -> Self {
-        Self {
-            source: Self::SKU_VALIDATION_SOURCE.to_string(),
-            observed_at: Some(chrono::Utc::now()),
-            successes: vec![HealthProbeSuccess {
-                id: HealthProbeId::sku_validation(),
-                target: None,
-            }],
-            alerts: vec![],
-            triggered_by: None,
-        }
-    }
-
-    /// Returns a health report which indicates that a machine failed SKU validation
     pub fn sku_missing(sku_id: &str) -> Self {
         Self {
             source: Self::SKU_VALIDATION_SOURCE.to_string(),
@@ -337,7 +326,7 @@ fn merge_classifications(
 
 /// How to apply a HealthReport override.
 #[derive(PartialEq, Eq, Debug, Clone, Copy, Serialize, Deserialize)]
-pub enum OverrideMode {
+pub enum HealthReportApplyMode {
     /// Successes or alerts in the override HealthReports will supersede any
     /// successes and alerts in the non-override HealthReports, merging by id
     /// and target.
@@ -484,6 +473,27 @@ impl HealthProbeAlert {
             classifications: vec![HealthAlertClassification::prevent_allocations()],
         }
     }
+
+    pub fn ib_port_down(down_ports: Vec<String>, total_ports: usize) -> Self {
+        let message = format!(
+            "IB port(s) down: {} of {} ports are not active. Down GUIDs: {}",
+            down_ports.len(),
+            total_ports,
+            down_ports.join(", ")
+        );
+        Self {
+            id: HealthProbeId::ib_port_down(),
+            target: None,
+            in_alert_since: Some(chrono::Utc::now()),
+            message,
+            tenant_message: Some(format!(
+                "InfiniBand connectivity issue: {} port(s) are currently unavailable",
+                down_ports.len()
+            )),
+            classifications: vec![HealthAlertClassification::prevent_allocations()],
+        }
+    }
+
     /// Merge a HealthProbeAlert with the report from another probe of the same type
     ///
     /// The function does not check whether the Probe ID and target are equivalent.
@@ -576,9 +586,7 @@ impl HealthProbeId {
         HealthProbeId("MalformedReport".to_string())
     }
 
-    /// The ID used by SKU validation for sending health reports
-    ///
-    /// Used by the state machine when SKU validation completes.
+    /// The ID used by SKU validation alerts.
     pub fn sku_validation() -> Self {
         HealthProbeId("SkuValidation".to_string())
     }
@@ -587,6 +595,13 @@ impl HealthProbeId {
     /// This is mandatory if tenant wants to turn off the machine.
     pub fn internal_maintenance() -> Self {
         HealthProbeId("Maintenance".to_string())
+    }
+
+    /// The ID used for IB port down alerts
+    ///
+    /// Used by the IB fabric monitor when ports are detected as down.
+    pub fn ib_port_down() -> Self {
+        HealthProbeId("IbPortDown".to_string())
     }
 }
 
@@ -663,6 +678,12 @@ impl HealthAlertClassification {
         Self("PreventAllocations".to_string())
     }
 
+    /// When present on aggregate health, carbide-api refuses tenant `ReleaseInstance` until cleared.
+    /// Storing the classification alone does not enforce policy; callers must interpret it.
+    pub fn prevent_instance_deletion() -> Self {
+        Self("PreventInstanceDeletion".to_string())
+    }
+
     /// The threshold that is used to externally alert on unhealthy hosts in the datacenter
     /// (e.g. via Prometheus/AlertManager alerts)
     /// will not take hosts with this classification into account
@@ -709,6 +730,8 @@ pub enum HealthReportConversionError {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use super::*;
 
     #[test]
@@ -726,6 +749,40 @@ mod tests {
         assert_eq!(
             format!("{classification:?} {classification}").as_str(),
             "\"PreventHostStateChanges\" PreventHostStateChanges"
+        );
+    }
+
+    #[test]
+    fn prevent_instance_deletion_classification_string() {
+        let c = HealthAlertClassification::prevent_instance_deletion();
+        assert_eq!(c.as_str(), "PreventInstanceDeletion");
+    }
+
+    #[test]
+    fn request_online_repair_merge_includes_prevent_instance_deletion() {
+        // Shape matches admin-cli `HealthReportTemplates::RequestOnlineRepair` (merge source
+        // `request-online-repair`, probe id `RequestOnlineRepair`).
+        let report = HealthReport {
+            source: "request-online-repair".to_string(),
+            triggered_by: None,
+            observed_at: Some(chrono::Utc::now()),
+            successes: vec![],
+            alerts: vec![HealthProbeAlert {
+                id: HealthProbeId::from_str("RequestOnlineRepair").unwrap(),
+                target: Some("request-online-repair".to_string()),
+                in_alert_since: None,
+                message: "test".to_string(),
+                tenant_message: None,
+                classifications: vec![
+                    HealthAlertClassification::prevent_allocations(),
+                    HealthAlertClassification::suppress_external_alerting(),
+                    HealthAlertClassification::prevent_instance_deletion(),
+                ],
+            }],
+        };
+        assert!(
+            report.has_classification(&HealthAlertClassification::prevent_instance_deletion()),
+            "RequestOnlineRepair template must include PreventInstanceDeletion for release gating"
         );
     }
 
@@ -1387,5 +1444,42 @@ mod tests {
         let mut merged2 = r2.clone();
         merged2.merge(&r1);
         assert_eq!(merged2.observed_at, expected.observed_at);
+    }
+
+    #[test]
+    fn test_ib_port_down_probe_id() {
+        let probe_id = HealthProbeId::ib_port_down();
+        assert_eq!(probe_id.as_str(), "IbPortDown");
+    }
+
+    #[test]
+    fn test_ib_port_down_alert_construction() {
+        let down_ports = vec!["guid1".to_string(), "guid2".to_string()];
+        let alert = HealthProbeAlert::ib_port_down(down_ports, 8);
+
+        assert_eq!(alert.id.as_str(), "IbPortDown");
+        assert!(alert.message.contains("2 of 8"));
+        assert!(alert.message.contains("guid1"));
+        assert!(alert.message.contains("guid2"));
+        assert!(alert.tenant_message.is_some());
+        assert!(
+            alert
+                .classifications
+                .contains(&HealthAlertClassification::prevent_allocations())
+        );
+    }
+
+    #[test]
+    fn test_ib_port_down_alert_prevents_allocations() {
+        let alert = HealthProbeAlert::ib_port_down(vec!["guid1".to_string()], 8);
+        let report = HealthReport {
+            source: "test".to_string(),
+            observed_at: None,
+            successes: vec![],
+            alerts: vec![alert],
+            triggered_by: None,
+        };
+
+        assert!(report.has_classification(&HealthAlertClassification::prevent_allocations()));
     }
 }

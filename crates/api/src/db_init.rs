@@ -19,6 +19,7 @@ use std::collections::HashMap;
 
 use carbide_network::virtualization::VpcVirtualizationType;
 use db::dns::domain;
+use db::network_segment::reconcile_network_defs;
 use db::vpc::{self};
 use db::{ObjectColumnFilter, Transaction, dpu_agent_upgrade_policy, network_segment};
 use itertools::Itertools;
@@ -26,7 +27,8 @@ use model::dns::NewDomain;
 use model::firmware::AgentUpgradePolicyChoice;
 use model::machine::upgrade_policy::AgentUpgradePolicy;
 use model::metadata::Metadata;
-use model::network_segment::{NetworkDefinition, NewNetworkSegment};
+use model::network_prefix::NewNetworkPrefix;
+use model::network_segment::{NetworkDefinition, NetworkSegmentType, NewNetworkSegment};
 use model::vpc::{NewVpc, VpcStatus};
 use sqlx::{Pool, Postgres};
 
@@ -68,7 +70,11 @@ pub async fn create_initial_networks(
         ObjectColumnFilter::<db::dns::domain::IdColumn>::All,
     )
     .await?;
-    if all_domains.len() != 1 {
+    if all_domains.is_empty() {
+        tracing::warn!("No domain configured, skipping initial network creation");
+        return Ok(());
+    }
+    if all_domains.len() > 1 {
         // We only create initial networks if we only have a single domain - usually created
         // as initial_domain_name in config file.
         // Having multiple domains is fine, it means we probably created the network much
@@ -77,22 +83,76 @@ pub async fn create_initial_networks(
         return Ok(());
     }
     let domain_id = all_domains[0].id;
+    reconcile_network_defs(&mut txn, networks).await?;
+
     for (name, def) in networks {
         if db::network_segment::find_by_name(&mut txn, name)
             .await
             .is_ok()
         {
-            // Network segments are only created the first time we start carbide-api
+            // Network segments are only created the first time we start carbide-api;
+            // `reconcile_network_defs` above has already recorded the snapshot if
+            // it was missing (the backfill path).
             tracing::debug!("Network segment {name} exists");
             continue;
         }
         let mut ns = NewNetworkSegment::build_from(name, domain_id, def)?;
         ns.can_stretch = Some(true);
+        // Capture before `save` moves `ns`. `insert_network_def` needs
+        // the id because `network_def.segment_id` is FK-bound to it.
+        let segment_id = ns.id;
         // update_network_segments_svi_ip will take care of allocating svi ip.
         crate::handlers::network_segment::save(api, &mut txn, ns, true, false).await?;
+        // Snapshot the network definition in the same transaction as the network_segment row,
+        // so the two stay consistent across restarts.
+        db::network_segment::insert_network_def(&mut txn, name, segment_id, def).await?;
         tracing::info!("Created network segment {name}");
     }
+
+    ensure_static_assignments_segment(api, &mut txn, Some(domain_id)).await?;
+
     txn.commit().await?;
+    Ok(())
+}
+
+/// Create the static-assignments anchor segment if it doesn't exist.
+/// This segment holds external static IP assignments that don't fall
+/// within any managed network prefix. The 169.254.254.254/32 prefix is
+/// a link-local placeholder -- the allocator will never hand out IPs
+/// from it, it exists only because the schema requires a prefix.
+pub async fn ensure_static_assignments_segment(
+    api: &Api,
+    txn: &mut db::Transaction<'_>,
+    subdomain_id: Option<carbide_uuid::domain::DomainId>,
+) -> Result<(), CarbideError> {
+    let segment_name = network_segment::STATIC_ASSIGNMENTS_SEGMENT_NAME;
+    if db::network_segment::find_by_name(txn, segment_name)
+        .await
+        .is_ok()
+    {
+        return Ok(());
+    }
+
+    let ns = NewNetworkSegment {
+        id: uuid::Uuid::new_v4().into(),
+        name: segment_name.to_string(),
+        subdomain_id,
+        vpc_id: None,
+        mtu: 1500,
+        prefixes: vec![NewNetworkPrefix {
+            prefix: "169.254.254.254/32".parse().unwrap(),
+            gateway: None,
+            num_reserved: 1,
+        }],
+        vlan_id: None,
+        vni: None,
+        segment_type: NetworkSegmentType::Underlay,
+        can_stretch: Some(false),
+        allocation_strategy: model::network_segment::AllocationStrategy::Reserved,
+    };
+    crate::handlers::network_segment::save(api, txn, ns, true, false).await?;
+    tracing::info!("Created internal {segment_name} segment for holding static assignments");
+
     Ok(())
 }
 
@@ -107,10 +167,13 @@ pub async fn update_network_segments_svi_ip(db_pool: &Pool<Postgres>) -> Result<
 
     let all_segments = all_segments
         .into_iter()
-        .filter(|x| x.can_stretch.is_some_and(|x| x))
+        .filter(|x| x.status.can_stretch.is_some_and(|x| x))
         .collect::<Vec<_>>();
 
-    let all_vpcs_ids = all_segments.iter().filter_map(|x| x.vpc_id).collect_vec();
+    let all_vpcs_ids = all_segments
+        .iter()
+        .filter_map(|x| x.config.vpc_id)
+        .collect_vec();
     let all_vpcs = db::vpc::find_by(
         &mut txn,
         ObjectColumnFilter::List(vpc::IdColumn, &all_vpcs_ids),
@@ -126,7 +189,7 @@ pub async fn update_network_segments_svi_ip(db_pool: &Pool<Postgres>) -> Result<
 
     // Allocate SVI IP for the segments attached to a FNN VPC.
     for segment in all_segments {
-        let Some(vpc_id) = segment.vpc_id else {
+        let Some(vpc_id) = segment.config.vpc_id else {
             continue;
         };
 
@@ -197,29 +260,34 @@ pub(crate) async fn create_admin_vpc(
 
     let mut txn = Transaction::begin(db_pool).await?;
 
-    let admin_segment = db::network_segment::admin(&mut txn).await?;
+    let admin_segments = db::network_segment::admin(&mut txn).await?;
     let existing_vpc = db::vpc::find_by_vni(&mut txn, vpc_vni as i32).await?;
-    if let Some(existing_vpc) = existing_vpc.first() {
-        if let Some(vpc_id) = admin_segment.vpc_id {
-            if vpc_id != existing_vpc.id {
-                return Err(CarbideError::internal(format!(
-                    "Mismatch found in admin vpc id {} and admin network segment's attached vpc id {vpc_id}.",
-                    existing_vpc.id
-                )));
-            }
 
-            // All good here. We have valid admin vpc and it is attached to valid segment.
-            return Ok(());
-        } else {
-            // Somehow vni field is not updated in network segment table. do it now.
-            db::network_segment::set_vpc_id_and_can_stretch(
-                &admin_segment,
-                &mut txn,
-                existing_vpc.id,
-            )
-            .await?;
-            return Ok(());
+    if let Some(existing_vpc) = existing_vpc.first() {
+        for admin_segment in admin_segments {
+            if let Some(vpc_id) = admin_segment.config.vpc_id {
+                if vpc_id != existing_vpc.id {
+                    return Err(CarbideError::internal(format!(
+                        "Mismatch found in admin vpc id {} and admin network segment's attached vpc id {vpc_id}.",
+                        existing_vpc.id
+                    )));
+                }
+
+                // All good here. We have valid admin vpc and it is attached to valid segment.
+            } else {
+                // Somehow vni field is not updated in network segment table. do it now.
+                db::network_segment::set_vpc_id_and_can_stretch(
+                    &admin_segment,
+                    &mut txn,
+                    existing_vpc.id,
+                )
+                .await?;
+            }
         }
+
+        txn.commit().await?;
+
+        return Ok(());
     }
 
     // Let's create admin vpc.
@@ -229,7 +297,7 @@ pub(crate) async fn create_admin_vpc(
         tenant_organization_id: "carbide_internal".to_string(),
         // For consistency, but admin routing profile is defined in-line in the
         // FNN config.
-        routing_profile_type: Some(model::tenant::RoutingProfileType::Admin),
+        routing_profile_type: None, // It's purely informational.  Admin profile is pulled from an inline-config and not tied to a name or ID.
         network_security_group_id: None,
         network_virtualization_type: carbide_network::virtualization::VpcVirtualizationType::Fnn,
         metadata: Metadata {
@@ -248,8 +316,10 @@ pub(crate) async fn create_admin_vpc(
     )
     .await?;
 
-    // Attach it to admin network segment.
-    db::network_segment::set_vpc_id_and_can_stretch(&admin_segment, &mut txn, vpc.id).await?;
+    // Attach it to admin network segments.
+    for admin_segment in admin_segments {
+        db::network_segment::set_vpc_id_and_can_stretch(&admin_segment, &mut txn, vpc.id).await?;
+    }
 
     txn.commit().await?;
 

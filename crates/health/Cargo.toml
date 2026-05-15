@@ -27,6 +27,7 @@ name = "forge-hw-health"
 path = "src/main.rs"
 
 [dependencies]
+async-trait = { workspace = true }
 base64 = { workspace = true }
 chrono = { workspace = true }
 dashmap = { workspace = true }
@@ -39,7 +40,7 @@ hyper = { workspace = true }
 hyper-util = { workspace = true }
 mac_address = { workspace = true }
 prometheus = { workspace = true }
-reqwest = { workspace = true }
+reqwest = { workspace = true, features = ["query", "json"] }
 serde = { features = ["derive"], workspace = true }
 serde_json = { workspace = true }
 serde_with = { workspace = true }
@@ -52,9 +53,27 @@ tracing-subscriber = { features = [
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }
-nv-redfish = { workspace = true }
+tonic-prost = { workspace = true }
+prost = { workspace = true }
+prost-types = { workspace = true }
+nv-redfish = { workspace = true, features = [
+  "bmc-http",
+  "chassis",
+  "computer-systems",
+  "event-service",
+  "log-services",
+  "managers",
+  "memory",
+  "power-supplies",
+  "processors",
+  "sensors",
+  "storages",
+  "thermal",
+  "update-service",
+  "resource-status",
+] }
 rand = { workspace = true }
-url = { workspace = true }
+url = { workspace = true, features = ["serde"] }
 
 # [local-dependencies]
 carbide-health-report = { path = "../health-report" }
@@ -67,12 +86,14 @@ logfmt = { path = "../logfmt" }
 
 [build-dependencies]
 carbide-version = { path = "../version" }
+tonic-prost-build = { workspace = true }
 
 [features]
 bench-hooks = []
 
 [dev-dependencies]
 criterion = { workspace = true }
+tempfile = { workspace = true }
 
 [[bench]]
 name = "sink_pipeline"

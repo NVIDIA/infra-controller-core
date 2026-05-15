@@ -18,11 +18,11 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
+use carbide_utils::arch::CpuArchitecture;
 use mac_address::MacAddress;
 use rpc::machine_discovery::{CpuInfo, Gpu, InfinibandInterface, MemoryDevice};
 use rpc::{BlockDevice, DiscoveryInfo, DmiData, NetworkInterface, NvmeDevice, PciDeviceProperties};
 use serde_json::json;
-use utils::models::arch::CpuArchitecture;
 
 use crate::json::JsonExt;
 use crate::{BootOptionKind, Callbacks, hw, redfish};
@@ -275,7 +275,6 @@ impl NvidiaDgxH100<'_> {
                     model: Some("DGXH100".into()),
                     serial_number: Some(self.dgx_system_serial_number.to_string().into()),
                     network_adapters: Some(vec![]),
-                    pcie_devices: None,
                     sensors: Some(redfish::sensor::generate_chassis_sensors(
                         "CPUBaseboard",
                         redfish::sensor::Layout {
@@ -283,8 +282,7 @@ impl NvidiaDgxH100<'_> {
                             ..Default::default()
                         },
                     )),
-                    assembly: None,
-                    oem: None,
+                    ..redfish::chassis::SingleChassisConfig::defaults()
                 },
                 redfish::chassis::SingleChassisConfig {
                     id: dgx_chassis_id.into(),
@@ -314,20 +312,19 @@ impl NvidiaDgxH100<'_> {
                             fan: 36,              // FAN_*
                             power: 47,            // PWR_*
                             current: 3,           // AMP_*
-                            leak: 17,             // VOLT_*
-                                                  // TOTAL: 223 of 253
-                                                  // Omitted: 29
-                                                  //     ENERGY_* = 12,
-                                                  //     HMCReady,
-                                                  //     OVERT_* = 2,
-                                                  //     RST_GB1_GPU,
-                                                  //     SEL_FULLNESS,
-                                                  //     STATUS_* = 12,
-                                                  //     WATCHDOG2
+                            voltage: 17,
+                            // TOTAL: 223 of 253
+                            // Omitted: 29
+                            //     ENERGY_* = 12,
+                            //     HMCReady,
+                            //     OVERT_* = 2,
+                            //     RST_GB1_GPU,
+                            //     SEL_FULLNESS,
+                            //     STATUS_* = 12,
+                            //     WATCHDOG2
                         },
                     )),
-                    assembly: None,
-                    oem: None,
+                    ..redfish::chassis::SingleChassisConfig::defaults()
                 },
             ]
             .into_iter()
@@ -384,7 +381,7 @@ impl NvidiaDgxH100<'_> {
                 }))
                 .collect(),
             machine_type: CpuArchitecture::X86_64.to_string(),
-            machine_arch: Some(CpuArchitecture::X86_64.into()),
+            machine_arch: Some(rpc::utils::cpu_architecture_to_rpc(CpuArchitecture::X86_64)),
             nvme_devices: (0..2)
                 .map(|n| NvmeDevice {
                     model: "Micron_7450_MTFDKBG1T9TFR".into(),
@@ -554,7 +551,6 @@ fn hgx_gpu_sxm_chassis(index: usize, serial: &str) -> redfish::chassis::SingleCh
         part_number: Some("2330-885-A1".into()),
         model: Some("H100 80GB HBM3".into()),
         serial_number: Some(serial.to_string().into()),
-        network_adapters: None,
         pcie_devices: Some(vec![
             redfish::pcie_device::builder(&redfish::pcie_device::chassis_resource(
                 &id,
@@ -571,12 +567,11 @@ fn hgx_gpu_sxm_chassis(index: usize, serial: &str) -> redfish::chassis::SingleCh
             redfish::sensor::Layout {
                 temperature: 3,
                 power: 2,
-                leak: 1, // Voltage
+                voltage: 1,
                 ..Default::default()
             },
         )),
         id: id.into(),
-        assembly: None,
-        oem: None,
+        ..redfish::chassis::SingleChassisConfig::defaults()
     }
 }

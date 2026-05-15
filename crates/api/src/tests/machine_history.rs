@@ -17,7 +17,8 @@
 use common::api_fixtures::{create_managed_host, create_test_env};
 use config_version::ConfigVersion;
 use db::{self};
-use model::machine::{MachineStateHistory, ManagedHostState};
+use model::machine::ManagedHostState;
+use model::state_history::StateHistoryRecord;
 use rpc::forge::forge_server::Forge;
 
 use crate::tests::common;
@@ -31,7 +32,6 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     let expected_initial_states_json = serde_json::json!([
         {"state": "created"},
-        {"state": "verifyrmsmembership"},
         {"state": "dpudiscoveringstate", "dpu_states": {"states": {&dpu_machine_id_string: {"dpudiscoverystate": "initializing"}}}},
         {"state": "dpudiscoveringstate", "dpu_states": {"states": {&dpu_machine_id_string: {"dpudiscoverystate": "configuring"}}}},
         {"state": "dpudiscoveringstate", "dpu_states": {"states": {&dpu_machine_id_string: {"dpudiscoverystate": "enablershim"}}}},
@@ -49,13 +49,15 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         {"state": "dpuinit", "dpu_states": {"states": {&dpu_machine_id_string: {"dpustate": "pollingbiossetup"}}}},
         {"state": "dpuinit", "dpu_states": {"states": {&dpu_machine_id_string: {"dpustate": "waitingfornetworkconfig"}}}},
         {"state": "hostinit", "machine_state": {"state": "enableipmioverlan"}},
-        {"state": "hostinit", "machine_state": {"state": "waitingforplatformconfiguration"}},
+        {"state": "hostinit", "machine_state": {"state": "waitingforplatformconfiguration", "retry_count": 0}},
         {"state": "hostinit", "machine_state": {"state": "pollingbiossetup"}},
         {"state": "hostinit", "machine_state": {"state": "setbootorder", "set_boot_order_info": {"retry_count": 0, "set_boot_order_state": {"state": "setbootorder"}}}},
         {"state": "hostinit", "machine_state": {"state": "setbootorder", "set_boot_order_info": {"retry_count": 0, "set_boot_order_state": {"state": "waitforsetbootorderjobscheduled"}}}},
         {"state": "hostinit", "machine_state": {"state": "setbootorder", "set_boot_order_info": {"retry_count": 0, "set_boot_order_state": {"state": "reboothost"}}}},
         {"state": "hostinit", "machine_state": {"state": "setbootorder", "set_boot_order_info": {"retry_count": 0, "set_boot_order_state": {"state": "waitforsetbootorderjobcompletion"}}}},
         {"state": "hostinit", "machine_state": {"state": "setbootorder", "set_boot_order_info": {"retry_count": 0, "set_boot_order_state": {"state": "checkbootorder"}}}},
+        {"state": "hostinit", "machine_state": {"state": "measuring", "measuring_state": "waitingformeasurements"}},
+        {"state": "hostinit", "machine_state": {"state": "spdmmeasuring", "spdm_measuring_state": "triggermeasurements"}},
         {"state": "hostinit", "machine_state": {"state": "waitingfordiscovery"}},
     ]);
     let expected_initial_states: Vec<serde_json::Value> =
@@ -162,9 +164,13 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     txn.commit().await?;
 
     let mut txn = env.pool.begin().await?;
-    let result = db::machine_state_history::for_machine(&mut txn, &host_machine_id)
-        .await
-        .unwrap();
+    let result = db::state_history::for_object(
+        &mut txn,
+        db::state_history::StateHistoryTableId::Machine,
+        &host_machine_id,
+    )
+    .await
+    .unwrap();
 
     // Count should not go beyond 250.
     assert_eq!(result.len(), 250);
@@ -273,13 +279,12 @@ async fn test_old_machine_state_history(
     Ok(())
 }
 
-fn json_history(history: &[MachineStateHistory]) -> serde_json::Result<Vec<serde_json::Value>> {
+fn json_history(history: &[StateHistoryRecord]) -> serde_json::Result<Vec<serde_json::Value>> {
     // // Check that version numbers are always incrementing by 1
     if !history.is_empty() {
-        let mut version = history[0].state_version.version_nr();
-        for entry in &history[1..] {
-            assert_eq!(entry.state_version.version_nr(), version + 1);
-            version += 1;
+        let first_version = history[0].state_version.version_nr();
+        for (expected_version, entry) in ((first_version + 1)..).zip(&history[1..]) {
+            assert_eq!(entry.state_version.version_nr(), expected_version);
         }
     }
 

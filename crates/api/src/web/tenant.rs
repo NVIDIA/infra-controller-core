@@ -25,7 +25,7 @@ use hyper::http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
 
-use super::filters;
+use super::{Base, filters};
 use crate::api::Api;
 
 #[derive(Template)]
@@ -38,21 +38,16 @@ struct TenantDisplay {
     organization_id: String,
     routing_profile_type: String,
     metadata: rpc::forge::Metadata,
-    version: String,
 }
 
 impl From<forgerpc::Tenant> for TenantDisplay {
     fn from(tenant: forgerpc::Tenant) -> Self {
         Self {
-            routing_profile_type: if tenant.routing_profile_type.is_none() {
-                "None"
-            } else {
-                tenant.routing_profile_type().as_str_name()
-            }
-            .to_string(),
+            routing_profile_type: tenant
+                .routing_profile_type
+                .unwrap_or_else(|| "None".to_string()),
             organization_id: tenant.organization_id,
             metadata: tenant.metadata.unwrap_or_default(),
-            version: tenant.version,
         }
     }
 }
@@ -110,7 +105,7 @@ async fn fetch_tenants(api: Arc<Api>) -> Result<forgerpc::TenantList, tonic::Sta
             .await?
             .into_inner();
 
-        tenants.extend(next_vpcs.tenants.into_iter());
+        tenants.extend(next_vpcs.tenants);
         offset += page_size;
     }
 
@@ -123,12 +118,18 @@ async fn fetch_tenants(api: Arc<Api>) -> Result<forgerpc::TenantList, tonic::Sta
 #[template(path = "tenant_detail.html")]
 struct TenantDetail {
     tenant: TenantDisplay,
+    metadata_detail: super::MetadataDetail,
 }
 
 impl From<forgerpc::Tenant> for TenantDetail {
     fn from(tenant: forgerpc::Tenant) -> Self {
+        let metadata_detail = super::MetadataDetail {
+            metadata: tenant.metadata.clone().unwrap_or_default(),
+            metadata_version: tenant.version.clone(),
+        };
         Self {
             tenant: tenant.into(),
+            metadata_detail,
         }
     }
 }
@@ -181,3 +182,6 @@ pub async fn detail(
     let tenant_detail: TenantDetail = tenant.into();
     (StatusCode::OK, Html(tenant_detail.render().unwrap())).into_response()
 }
+
+impl super::Base for TenantShow {}
+impl super::Base for TenantDetail {}

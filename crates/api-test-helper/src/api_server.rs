@@ -17,10 +17,10 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
+use carbide_utils::HostPortPair;
 use forge_secrets::CredentialConfig;
 use tokio::sync::oneshot::Sender;
 use tokio_util::sync::CancellationToken;
-use utils::HostPortPair;
 
 use crate::utils::LOCALHOST_CERTS;
 
@@ -274,18 +274,18 @@ pub async fn start(
         [machine_validation_config]
         enabled = true
 
-        [machine_identity]
-        enabled = true
-        algorithm = "ES256"
-        token_ttl_min_sec = 60
-        token_ttl_max_sec = 86400
+        # [machine_identity] omitted: default is disabled. Enabling requires
+        # current_encryption_key_id and vault/file credentials for encryption_keys;
+        # populate_initial_vault_secrets does not seed those for integration tests.
     "#
         )
     };
 
+    let mut tmp = tempfile::NamedTempFile::new()?;
+    std::io::Write::write_all(&mut tmp, carbide_config_str.as_bytes())?;
     carbide::run(
         0,
-        carbide_config_str,
+        tmp.path().to_path_buf(),
         None,
         credential_config,
         true,

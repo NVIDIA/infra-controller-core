@@ -24,7 +24,7 @@ use axum::response::{Html, IntoResponse, Response};
 use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
 
-use super::filters;
+use super::{Base, filters};
 use crate::api::Api;
 
 #[derive(Template)]
@@ -95,3 +95,5 @@ async fn fetch_expected_power_shelves(
 
     Ok(power_shelves)
 }
+
+impl super::Base for ExpectedPowerShelves {}

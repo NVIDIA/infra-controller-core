@@ -21,6 +21,8 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 pub use ::rpc::forge as rpc;
+use carbide_nvlink_manager::config::NvLinkConfig;
+use carbide_uuid::machine::MachineIdSource;
 use carbide_uuid::nvlink::NvLinkDomainId;
 use db::WithTransaction;
 use futures_util::FutureExt;
@@ -31,7 +33,6 @@ use model::machine::{DpuInitState, DpuInitStates, ManagedHostState};
 use tonic::{Request, Response, Status};
 
 use crate::api::{Api, log_machine_id, log_request_data};
-use crate::cfg::file::NvLinkConfig;
 use crate::handlers::utils::convert_and_log_machine_id;
 use crate::{CarbideError, CarbideResult, attestation as attest};
 
@@ -48,8 +49,8 @@ pub(crate) async fn discover_machine(
             // we use to_canonical() to convert it to IPv4.
             request
                 .extensions()
-                .get::<Arc<crate::listener::ConnectionAttributes>>()
-                .map(|conn_attrs| conn_attrs.peer_address().ip().to_canonical())
+                .get::<Arc<carbide_authn::middleware::ConnectionAttributes>>()
+                .map(|conn_attrs| conn_attrs.peer_address.ip().to_canonical())
         }
         Some(ip_str) => {
             // Development case, we override the remote IP with HTTP header
@@ -151,6 +152,18 @@ pub(crate) async fn discover_machine(
 
     let interface =
         db::machine_interface::find_by_ip_or_id(&mut txn, remote_ip, interface_id).await?;
+    if !hardware_info.is_dpu()
+        && hardware_info.tpm_ek_certificate.is_none()
+        && stable_machine_id.source() == MachineIdSource::ProductBoardChassisSerial
+        && let Some(existing_machine_id) = interface.machine_id
+        && existing_machine_id.source() == MachineIdSource::Tpm
+        && existing_machine_id.machine_type().is_host()
+    {
+        return Err(CarbideError::FailedPrecondition(format!(
+            "TPM EK certificate missing for host discovery on InterfaceId {interface_id:?}; refusing to derive serial-based machine id {stable_machine_id} for existing TPM-derived machine id {existing_machine_id}"
+        ))
+        .into());
+    }
     let machine_id = if hardware_info.is_dpu() {
         // if site explorer is creating machine records and there isn't one for this machine return an error
         if api
@@ -208,8 +221,7 @@ pub(crate) async fn discover_machine(
             })?
         };
 
-        let (network_config, _version) = db_machine.network_config.clone().take();
-        if network_config.loopback_ip.is_none() {
+        if db_machine.network_config.loopback_ip.is_none() {
             let loopback_ip = db::machine::allocate_loopback_ip(
                 &api.common_pools,
                 &mut txn,
@@ -217,13 +229,12 @@ pub(crate) async fn discover_machine(
             )
             .await?;
 
-            let (mut network_config, version) = db_machine.network_config.clone().take();
+            let mut network_config = db_machine.network_config.value.clone();
             network_config.loopback_ip = Some(loopback_ip);
-            network_config.use_admin_network = Some(true);
             db::machine::try_update_network_config(
                 &mut txn,
                 &stable_machine_id,
-                version,
+                db_machine.network_config.version,
                 &network_config,
             )
             .await?;
@@ -235,7 +246,10 @@ pub(crate) async fn discover_machine(
             .as_ref()
             .map(|vc| vc.secondary_overlay_support)
             .unwrap_or_default()
-            && network_config.secondary_overlay_vtep_ip.is_none()
+            && db_machine
+                .network_config
+                .secondary_overlay_vtep_ip
+                .is_none()
         {
             let secondary_vtep_ip = db::machine::allocate_secondary_vtep_ip(
                 &api.common_pools,
@@ -244,13 +258,12 @@ pub(crate) async fn discover_machine(
             )
             .await?;
 
-            let (mut network_config, version) = db_machine.network_config.clone().take();
+            let mut network_config = db_machine.network_config.value.clone();
             network_config.secondary_overlay_vtep_ip = Some(secondary_vtep_ip);
-            network_config.use_admin_network = Some(true);
             db::machine::try_update_network_config(
                 &mut txn,
                 &stable_machine_id,
-                version,
+                db_machine.network_config.version,
                 &network_config,
             )
             .await?;

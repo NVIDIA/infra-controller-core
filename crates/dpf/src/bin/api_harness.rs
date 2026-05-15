@@ -298,7 +298,9 @@ async fn redfish_reboot_host(
         ..Default::default()
     };
 
-    let pool = libredfish::RedfishClientPool::builder().build()?;
+    let pool = libredfish::RedfishClientPool::builder()
+        .danger_accept_invalid_certs()
+        .build()?;
     let client: Box<dyn Redfish> = pool.create_client(endpoint).await?;
 
     // Snapshot the boot progress timestamp before restarting.
@@ -709,8 +711,6 @@ async fn run_provisioning_flow(
     let init_config = InitDpfResourcesConfig {
         bfb_url: bfb_url.to_string(),
         services: services.to_vec(),
-        bfcfg_template: None,
-        dpu_flavor: None,
         ..Default::default()
     };
     sdk.create_initialization_objects(&init_config).await?;
@@ -723,8 +723,8 @@ async fn run_provisioning_flow(
             dpu_bmc_ip: dpu.dpu_bmc_ip.clone(),
             host_bmc_ip: host_bmc_ip.to_string(),
             serial_number: dpu.serial_number.clone(),
-            host_machine_id: String::new(),
             dpu_machine_id: String::new(),
+            is_primary: true,
         };
         sdk.register_dpu_device(info).await?;
         tracing::info!(device_name = %dpu.device_name, serial = %dpu.serial_number, "Registered device");
@@ -735,7 +735,6 @@ async fn run_provisioning_flow(
         node_id: node_id.to_string(),
         host_bmc_ip: host_bmc_ip.to_string(),
         device_ids: dpus.iter().map(|d| d.device_name.clone()).collect(),
-        host_machine_id: String::new(),
     };
     sdk.register_dpu_node(node_info).await?;
     tracing::info!(dpu_count = dpus.len(), "Node registered");
@@ -898,15 +897,14 @@ async fn run_cleanup(
         .map(|s| s.trim().to_string())
         .collect();
 
-    let node_name = device_names
+    let node_id = device_names
         .first()
-        .map(|id| dpu_node_cr_name(id))
         .ok_or("dpu_device_names must not be empty")?;
 
     tracing::info!("=== DPF Cleanup ===");
-    tracing::info!(node = %node_name, device_names = ?device_names, "Starting cleanup");
+    tracing::info!(node = %node_id, device_names = ?device_names, "Starting cleanup");
 
-    sdk.force_delete_host(&node_name, &device_names).await?;
+    sdk.force_delete_host(node_id, &device_names).await?;
 
     tracing::info!("Cleanup complete");
     Ok(())

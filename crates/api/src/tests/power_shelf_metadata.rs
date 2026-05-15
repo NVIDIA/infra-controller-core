@@ -16,6 +16,7 @@
  */
 
 use carbide_uuid::power_shelf::PowerShelfId;
+use carbide_uuid::rack::RackId;
 use db::{DatabaseError, power_shelf as db_power_shelf};
 use model::metadata::Metadata;
 use model::power_shelf::{NewPowerShelf, PowerShelfConfig};
@@ -29,11 +30,12 @@ async fn test_power_shelf_metadata_defaults(
 
     let new_ps = NewPowerShelf {
         id: ps_id,
+        bmc_mac_address: None,
+        rack_id: Some(RackId::new("test-rack-1".to_string())),
         config: PowerShelfConfig {
             name: "shelf-serial-001".to_string(),
             capacity: Some(100),
             voltage: Some(240),
-            location: None,
         },
         metadata: None,
     };
@@ -67,11 +69,12 @@ async fn test_power_shelf_metadata_from_expected(
 
     let new_ps = NewPowerShelf {
         id: ps_id,
+        bmc_mac_address: None,
+        rack_id: Some(RackId::new("test-rack-1".to_string())),
         config: PowerShelfConfig {
             name: "shelf-serial-002".to_string(),
             capacity: Some(100),
             voltage: Some(240),
-            location: None,
         },
         metadata: Some(expected_metadata),
     };
@@ -95,11 +98,12 @@ async fn test_power_shelf_metadata_update(
 
     let new_ps = NewPowerShelf {
         id: ps_id,
+        bmc_mac_address: None,
+        rack_id: Some(RackId::new("test-rack-1".to_string())),
         config: PowerShelfConfig {
             name: "shelf-serial-003".to_string(),
             capacity: Some(100),
             voltage: Some(240),
-            location: None,
         },
         metadata: None,
     };
@@ -120,7 +124,6 @@ async fn test_power_shelf_metadata_update(
     let found = db_power_shelf::find_by(
         &mut txn,
         db::ObjectColumnFilter::One(db_power_shelf::IdColumn, &ps_id),
-        db_power_shelf::PowerShelfSearchConfig::default(),
     )
     .await?;
     let updated_ps = &found[0];
@@ -146,11 +149,12 @@ async fn test_power_shelf_metadata_version_conflict(
 
     let new_ps = NewPowerShelf {
         id: ps_id,
+        bmc_mac_address: None,
+        rack_id: Some(RackId::new("test-rack-1".to_string())),
         config: PowerShelfConfig {
             name: "shelf-serial-004".to_string(),
             capacity: Some(100),
             voltage: Some(240),
-            location: None,
         },
         metadata: None,
     };

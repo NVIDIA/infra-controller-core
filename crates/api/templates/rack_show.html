@@ -24,21 +24,13 @@
                             <tr>
                                 <th>ID</th>
                                 <th>State</th>
-                                <th>Expected Compute Trays</th>
-                                <th>Current Compute Trays</th>
-                                <th>Expected Power Shelves</th>
-                                <th>Current Power Shelves</th>
                             </tr>
                             </thead>
                             <tbody>
                             {% for rack in racks %}
                             <tr>
                                 <td>{{ rack.id|rack_id_link|safe }}</td>
-                                <td>{{ rack.rack_state }}</td>
-                                <td>{{ rack.expected_compute_trays }}</td>
-                                <td>{{ rack.current_compute_trays }}</td>
-                                <td>{{ rack.expected_power_shelves }}</td>
-                                <td>{{ rack.current_power_shelves }}</td>
+                                <td>{{ rack.state_display|safe }}</td>
                             </tr>
                             {% endfor %}
                             </tbody>

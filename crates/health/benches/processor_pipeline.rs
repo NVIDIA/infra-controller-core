@@ -94,6 +94,9 @@ fn event_context() -> EventContext {
         metadata: Some(EndpointMetadata::Machine(MachineData {
             machine_id: MACHINE_ID.parse().expect("valid machine id"),
             machine_serial: None,
+            slot_number: None,
+            tray_index: None,
+            nvlink_domain_uuid: None,
         })),
         rack_id: None,
     }
@@ -207,7 +210,7 @@ fn bench_pipeline_health_processors(c: &mut Criterion) {
         Arc::new(MetricsManager::new("bench").expect("metrics manager should initialize"));
 
     let processors: Vec<Arc<dyn EventProcessor>> = vec![
-        Arc::new(HealthReportProcessor::new()),
+        Arc::new(HealthReportProcessor::default()),
         Arc::new(LeakEventProcessor::new(1)),
     ];
     let pipeline = EventProcessingPipeline::new(
@@ -268,6 +271,9 @@ fn rack_event_contexts(rack_id: &str, tray_count: usize) -> Vec<EventContext> {
                 metadata: Some(EndpointMetadata::Machine(MachineData {
                     machine_id: MACHINE_ID.parse().expect("valid machine id"),
                     machine_serial: None,
+                    slot_number: None,
+                    tray_index: None,
+                    nvlink_domain_uuid: None,
                 })),
                 rack_id: Some(RackId::new(rack_id)),
             }
@@ -282,7 +288,7 @@ fn bench_pipeline_rack_leak(c: &mut Criterion) {
         Arc::new(MetricsManager::new("bench").expect("metrics manager should initialize"));
 
     let processors: Vec<Arc<dyn EventProcessor>> = vec![
-        Arc::new(HealthReportProcessor::new()),
+        Arc::new(HealthReportProcessor::default()),
         Arc::new(LeakEventProcessor::new(1)),
         Arc::new(RackLeakProcessor::new(2)),
     ];
@@ -320,6 +326,6 @@ criterion_group!(
     bench_pipeline_baseline,
     bench_pipeline_health_processors,
     bench_pipeline_loop_guard,
-    bench_pipeline_rack_leak
+    bench_pipeline_rack_leak,
 );
 criterion_main!(benches);

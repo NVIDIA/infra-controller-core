@@ -29,7 +29,7 @@ use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc};
 use serde::{Deserialize, Deserializer, de};
 
-use super::filters;
+use super::{Base, filters};
 use crate::api::Api;
 
 const DEFAULT_PAGE_RECORD_LIMIT: usize = 100;
@@ -319,7 +319,7 @@ pub async fn show_detail(
     }
     .instance_types
     .pop() else {
-        return (StatusCode::NOT_FOUND, "Requested instance type not found").into_response();
+        return super::not_found_response(instance_type_id);
     };
 
     if show_json {
@@ -376,3 +376,6 @@ pub async fn show_detail(
     // Away we go
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
+
+impl super::Base for InstanceTypeShow {}
+impl super::Base for InstanceTypeDetailDisplay {}

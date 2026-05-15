@@ -1,3 +1,18 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # Runtime image for forge-dhcp-server on arm64 DPUs.
 #
 # The binary is cross-compiled externally using the
@@ -13,6 +28,6 @@ ARG DISTROLESS_DEBUG_TAG=${DEBUG_DISTROLESS:+"dev"} # 'dev' provides a busybox s
 # NVIDIA Distroless Container
 FROM --platform=linux/arm64 ${IMG}:${TAG}-${DISTROLESS_DEBUG_TAG}
 
-COPY target/aarch64-unknown-linux-gnu/release/forge-dhcp-server /usr/bin/forge-dhcp-server
+COPY --chmod=755 target/aarch64-unknown-linux-gnu/release/forge-dhcp-server /var/support/forge-dhcp/bin/forge-dhcp-server
 
-ENTRYPOINT ["/usr/bin/forge-dhcp-server"]
+ENTRYPOINT ["/var/support/forge-dhcp/bin/forge-dhcp-server"]

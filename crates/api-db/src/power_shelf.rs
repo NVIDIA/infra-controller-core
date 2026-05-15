@@ -18,10 +18,13 @@
 use carbide_uuid::power_shelf::PowerShelfId;
 use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
-use futures::StreamExt;
+use health_report::{HealthReport, HealthReportApplyMode};
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::metadata::Metadata;
-use model::power_shelf::{NewPowerShelf, PowerShelf, PowerShelfControllerState};
+use model::power_shelf::{
+    NewPowerShelf, PowerShelf, PowerShelfControllerState, PowerShelfMaintenanceOperation,
+    PowerShelfMaintenanceRequest,
+};
 use sqlx::PgConnection;
 
 use crate::db_read::DbReader;
@@ -32,6 +35,8 @@ use crate::{
 #[derive(Debug, Clone, Default)]
 pub struct PowerShelfSearchConfig {
     // pub include_history: bool, // unused
+    pub controller_state: Option<String>,
+    pub rack_id: Option<String>,
 }
 
 #[derive(Copy, Clone)]
@@ -53,6 +58,17 @@ impl ColumnInfo<'_> for NameColumn {
 
     fn column_name(&self) -> &'static str {
         "name"
+    }
+}
+
+#[derive(Copy, Clone)]
+pub struct BmcMacAddressColumn;
+impl ColumnInfo<'_> for BmcMacAddressColumn {
+    type TableType = PowerShelf;
+    type ColumnType = mac_address::MacAddress;
+
+    fn column_name(&self) -> &'static str {
+        "bmc_mac_address"
     }
 }
 
@@ -80,7 +96,7 @@ pub async fn create(
     };
 
     let query = sqlx::query_as::<_, PowerShelfId>(
-        "INSERT INTO power_shelves (id, name, config, controller_state, controller_state_version, description, labels, version) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8) RETURNING id",
+        "INSERT INTO power_shelves (id, name, config, controller_state, controller_state_version, bmc_mac_address, description, labels, version, rack_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id",
     );
     let _: PowerShelfId = query
         .bind(new_power_shelf.id)
@@ -88,9 +104,11 @@ pub async fn create(
         .bind(sqlx::types::Json(&new_power_shelf.config))
         .bind(sqlx::types::Json(&state))
         .bind(controller_state_version)
+        .bind(new_power_shelf.bmc_mac_address)
         .bind(&metadata.description)
         .bind(sqlx::types::Json(&metadata.labels))
         .bind(version)
+        .bind(&new_power_shelf.rack_id)
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new("create power_shelf", e))?;
@@ -100,6 +118,7 @@ pub async fn create(
         config: new_power_shelf.config.clone(),
         status: None,
         deleted: None,
+        bmc_mac_address: new_power_shelf.bmc_mac_address,
         controller_state: Versioned {
             value: state,
             version: controller_state_version,
@@ -107,6 +126,9 @@ pub async fn create(
         controller_state_outcome: None,
         metadata,
         version,
+        rack_id: new_power_shelf.rack_id.clone(),
+        power_shelf_maintenance_requested: None,
+        health_reports: Default::default(),
     })
 }
 
@@ -114,12 +136,8 @@ pub async fn find_by_name(
     txn: &mut PgConnection,
     name: &str,
 ) -> DatabaseResult<Option<PowerShelf>> {
-    let mut power_shelves = find_by(
-        txn,
-        ObjectColumnFilter::One(NameColumn, &name.to_string()),
-        PowerShelfSearchConfig::default(),
-    )
-    .await?;
+    let mut power_shelves =
+        find_by(txn, ObjectColumnFilter::One(NameColumn, &name.to_string())).await?;
 
     if power_shelves.is_empty() {
         Ok(None)
@@ -143,12 +161,7 @@ pub async fn find_by_id(
     txn: &mut PgConnection,
     id: &PowerShelfId,
 ) -> DatabaseResult<Option<PowerShelf>> {
-    let mut power_shelves = find_by(
-        txn,
-        ObjectColumnFilter::One(IdColumn, id),
-        PowerShelfSearchConfig::default(),
-    )
-    .await?;
+    let mut power_shelves = find_by(txn, ObjectColumnFilter::One(IdColumn, id)).await?;
 
     if power_shelves.is_empty() {
         Ok(None)
@@ -164,30 +177,25 @@ pub async fn find_by_id(
     }
 }
 
-pub async fn list_segment_ids(txn: &mut PgConnection) -> DatabaseResult<Vec<PowerShelfId>> {
-    let query =
-        sqlx::query_as::<_, PowerShelfId>("SELECT id FROM power_shelves WHERE deleted IS NULL");
-
-    let mut rows = query.fetch(txn);
-    let mut ids = Vec::new();
-
-    while let Some(row) = rows.next().await {
-        ids.push(row.map_err(|e| DatabaseError::new("list_segment_ids power_shelf", e))?);
-    }
-
-    Ok(ids)
+// TODO(chet): Per Issue #925, the goal is to link machines to BMCs via
+// the machine_interfaces table, but for now this is going to be like
+// this until I take care of the issue.
+pub async fn find_by_bmc_mac_address(
+    txn: &mut PgConnection,
+    bmc_mac_address: mac_address::MacAddress,
+) -> DatabaseResult<Option<PowerShelf>> {
+    let power_shelves = find_by(
+        txn,
+        ObjectColumnFilter::One(BmcMacAddressColumn, &bmc_mac_address),
+    )
+    .await?;
+    Ok(power_shelves.into_iter().next())
 }
 
 pub async fn find_ids(
     txn: impl DbReader<'_>,
     filter: model::power_shelf::PowerShelfSearchFilter,
 ) -> Result<Vec<PowerShelfId>, DatabaseError> {
-    if filter.rack_id.is_some() {
-        return Err(DatabaseError::InvalidArgument(
-            "rack_id filtering is not yet supported for power shelves".to_string(),
-        ));
-    }
-
     let mut qb = sqlx::QueryBuilder::new("SELECT DISTINCT ps.id FROM power_shelves ps");
 
     if filter.bmc_mac.is_some() {
@@ -196,6 +204,10 @@ pub async fn find_ids(
 
     qb.push(" WHERE TRUE");
 
+    if let Some(rack_id) = filter.rack_id {
+        qb.push(" AND ps.rack_id = ");
+        qb.push_bind(rack_id);
+    }
     match filter.deleted {
         model::DeletedFilter::Exclude => qb.push(" AND ps.deleted IS NULL"),
         model::DeletedFilter::Only => qb.push(" AND ps.deleted IS NOT NULL"),
@@ -221,7 +233,6 @@ pub async fn find_ids(
 pub async fn find_by<'a, C: ColumnInfo<'a, TableType = PowerShelf>>(
     txn: &mut PgConnection,
     filter: ObjectColumnFilter<'a, C>,
-    _search_config: PowerShelfSearchConfig,
 ) -> DatabaseResult<Vec<PowerShelf>> {
     let mut query = FilterableQueryBuilder::new("SELECT * FROM power_shelves").filter(&filter);
 
@@ -265,6 +276,40 @@ pub async fn update_controller_state_outcome(
         .await
         .map_err(|e| DatabaseError::new("update_controller_state_outcome", e))?;
 
+    Ok(())
+}
+
+pub async fn set_power_shelf_maintenance_requested(
+    txn: &mut PgConnection,
+    power_shelf_id: PowerShelfId,
+    initiator: &str,
+    operation: PowerShelfMaintenanceOperation,
+) -> DatabaseResult<()> {
+    let req = PowerShelfMaintenanceRequest {
+        requested_at: Utc::now(),
+        initiator: initiator.to_string(),
+        operation,
+    };
+    let query = "UPDATE power_shelves SET power_shelf_maintenance_requested = $1 WHERE id = $2 RETURNING id";
+    sqlx::query_as::<_, PowerShelfId>(query)
+        .bind(sqlx::types::Json(req))
+        .bind(power_shelf_id)
+        .fetch_optional(txn)
+        .await
+        .map_err(|e| DatabaseError::new("set_power_shelf_maintenance_requested", e))?;
+    Ok(())
+}
+
+pub async fn clear_power_shelf_maintenance_requested(
+    txn: &mut PgConnection,
+    power_shelf_id: PowerShelfId,
+) -> DatabaseResult<()> {
+    let query = "UPDATE power_shelves SET power_shelf_maintenance_requested = NULL WHERE id = $1 RETURNING id";
+    sqlx::query_as::<_, PowerShelfId>(query)
+        .bind(power_shelf_id)
+        .fetch_optional(txn)
+        .await
+        .map_err(|e| DatabaseError::new("clear_power_shelf_maintenance_requested", e))?;
     Ok(())
 }
 
@@ -317,21 +362,24 @@ pub async fn update(
 
 use std::net::IpAddr;
 
+use carbide_uuid::rack::RackId;
 use mac_address::MacAddress;
 
-/// Resolve PowerShelfIds to BMC/PMC IPs.
+/// Resolve PowerShelfIds to BMC/PMC IPs via the machine_interfaces path.
 pub async fn find_bmc_ips_by_power_shelf_ids(
     db: impl crate::db_read::DbReader<'_>,
     power_shelf_ids: &[PowerShelfId],
 ) -> DatabaseResult<Vec<(PowerShelfId, IpAddr)>> {
     let sql = r#"
-        SELECT
+        SELECT DISTINCT ON (ps.id)
             ps.id,
-            eps.ip_address
+            mia.address
         FROM power_shelves ps
         JOIN expected_power_shelves eps ON eps.serial_number = ps.config->>'name'
+        JOIN machine_interfaces mi ON mi.mac_address = eps.bmc_mac_address
+        JOIN machine_interface_addresses mia ON mia.interface_id = mi.id
         WHERE ps.id = ANY($1)
-          AND eps.ip_address IS NOT NULL
+        ORDER BY ps.id
     "#;
 
     sqlx::query_as(sql)
@@ -354,15 +402,18 @@ pub async fn find_power_shelf_endpoints_by_ids(
     db: impl crate::db_read::DbReader<'_>,
     power_shelf_ids: &[PowerShelfId],
 ) -> DatabaseResult<Vec<PowerShelfEndpointRow>> {
+    // DISTINCT ON guards against a machine_interface having multiple addresses
     let sql = r#"
-        SELECT
+        SELECT DISTINCT ON (ps.id)
             ps.id                AS power_shelf_id,
             eps.bmc_mac_address  AS pmc_mac,
-            eps.ip_address       AS pmc_ip
+            mia.address          AS pmc_ip
         FROM power_shelves ps
         JOIN expected_power_shelves eps ON eps.serial_number = ps.config->>'name'
+        JOIN machine_interfaces mi ON mi.mac_address = eps.bmc_mac_address
+        JOIN machine_interface_addresses mia ON mia.interface_id = mi.id
         WHERE ps.id = ANY($1)
-          AND eps.ip_address IS NOT NULL
+        ORDER BY ps.id
     "#;
 
     sqlx::query_as(sql)
@@ -431,4 +482,285 @@ pub async fn find_bmc_info_by_power_shelf_ids(
         .fetch_all(db)
         .await
         .map_err(|err| DatabaseError::new("power_shelf::find_bmc_info_by_power_shelf_ids", err))
+}
+
+/// A power shelf resolved by its BMC MAC address, along with the rack it
+/// belongs to. Used by the Component Manager state controller wrapper to
+/// build a rack-level `MaintenanceScope` for the power shelves it's been
+/// asked to act on.
+#[derive(Debug, sqlx::FromRow)]
+pub struct PowerShelfIdByBmcMac {
+    pub bmc_mac_address: MacAddress,
+    pub id: PowerShelfId,
+    pub rack_id: Option<RackId>,
+}
+
+/// Resolve BMC MAC addresses to `PowerShelfId`s + `rack_id`s.
+pub async fn find_ids_by_bmc_macs(
+    db: impl crate::db_read::DbReader<'_>,
+    macs: &[MacAddress],
+) -> DatabaseResult<Vec<PowerShelfIdByBmcMac>> {
+    let sql = r#"
+        SELECT ps.bmc_mac_address, ps.id, ps.rack_id
+        FROM power_shelves ps
+        WHERE ps.bmc_mac_address = ANY($1)
+    "#;
+
+    sqlx::query_as(sql)
+        .bind(macs)
+        .fetch_all(db)
+        .await
+        .map_err(|err| DatabaseError::new("power_shelf::find_ids_by_bmc_macs", err))
+}
+
+/// RMS identity for a power shelf: the power shelf ID (used as the RMS
+/// node_id), the BMC MAC address, and the rack_id.
+#[derive(Debug, sqlx::FromRow)]
+pub struct PowerShelfRmsIdentity {
+    pub id: String,
+    pub bmc_mac_address: MacAddress,
+    pub rack_id: Option<RackId>,
+}
+
+/// Look up RMS identities (node_id, rack_id) for power shelves by their
+/// BMC MAC addresses.
+pub async fn find_rms_identities_by_macs(
+    db: impl crate::db_read::DbReader<'_>,
+    macs: &[MacAddress],
+) -> DatabaseResult<Vec<PowerShelfRmsIdentity>> {
+    let sql = r#"
+        SELECT ps.id::text, ps.bmc_mac_address, ps.rack_id
+        FROM power_shelves ps
+        WHERE ps.bmc_mac_address = ANY($1)
+    "#;
+
+    sqlx::query_as(sql)
+        .bind(macs)
+        .fetch_all(db)
+        .await
+        .map_err(|err| DatabaseError::new("power_shelf::find_rms_identities_by_macs", err))
+}
+
+pub async fn insert_health_report(
+    txn: &mut PgConnection,
+    power_shelf_id: &PowerShelfId,
+    mode: HealthReportApplyMode,
+    health_report: &HealthReport,
+) -> Result<(), DatabaseError> {
+    crate::health_report::insert_health_report(
+        txn,
+        "power_shelves",
+        power_shelf_id,
+        mode,
+        health_report,
+    )
+    .await
+}
+
+pub async fn remove_health_report(
+    txn: &mut PgConnection,
+    power_shelf_id: &PowerShelfId,
+    mode: HealthReportApplyMode,
+    source: &str,
+) -> Result<(), DatabaseError> {
+    crate::health_report::remove_health_report(txn, "power_shelves", power_shelf_id, mode, source)
+        .await
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_uuid::power_shelf::{HardwareHash, PowerShelfIdSource, PowerShelfType};
+    use model::metadata::Metadata;
+    use model::power_shelf::PowerShelfConfig;
+
+    use super::*;
+
+    /// Build a unique `PowerShelfId` for the test. The `seed` byte is used to
+    /// derive a deterministic 32-byte hardware hash so multiple shelves can
+    /// coexist within a single `sqlx_test` transaction without colliding.
+    fn test_power_shelf_id(seed: u8) -> PowerShelfId {
+        let hash: HardwareHash = [seed; 32];
+        PowerShelfId::new(
+            PowerShelfIdSource::ProductBoardChassisSerial,
+            hash,
+            PowerShelfType::Rack,
+        )
+    }
+
+    async fn create_test_power_shelf(
+        txn: &mut PgConnection,
+        seed: u8,
+        name: &str,
+    ) -> Result<PowerShelf, DatabaseError> {
+        let new_power_shelf = NewPowerShelf {
+            id: test_power_shelf_id(seed),
+            config: PowerShelfConfig {
+                name: name.to_string(),
+                capacity: Some(5000),
+                voltage: Some(240),
+            },
+            bmc_mac_address: None,
+            metadata: Some(Metadata {
+                name: name.to_string(),
+                description: String::new(),
+                labels: Default::default(),
+            }),
+            rack_id: None,
+        };
+        create(txn, &new_power_shelf).await
+    }
+
+    #[crate::sqlx_test]
+    async fn test_set_power_shelf_maintenance_requested_power_on(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await?;
+        let shelf = create_test_power_shelf(&mut txn, 1, "PowerOn shelf").await?;
+        assert!(
+            shelf.power_shelf_maintenance_requested.is_none(),
+            "freshly created power shelf should have no maintenance request"
+        );
+
+        set_power_shelf_maintenance_requested(
+            &mut txn,
+            shelf.id,
+            "operator (TICKET-123)",
+            PowerShelfMaintenanceOperation::PowerOn,
+        )
+        .await?;
+
+        let reloaded = find_by_id(&mut txn, &shelf.id).await?.unwrap();
+        let request = reloaded
+            .power_shelf_maintenance_requested
+            .expect("expected a maintenance request to be persisted");
+        assert_eq!(
+            request.operation,
+            PowerShelfMaintenanceOperation::PowerOn,
+            "operation should round-trip as PowerOn"
+        );
+        assert_eq!(request.initiator, "operator (TICKET-123)");
+
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
+    async fn test_set_power_shelf_maintenance_requested_power_off(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await?;
+        let shelf = create_test_power_shelf(&mut txn, 2, "PowerOff shelf").await?;
+
+        set_power_shelf_maintenance_requested(
+            &mut txn,
+            shelf.id,
+            "admin-cli",
+            PowerShelfMaintenanceOperation::PowerOff,
+        )
+        .await?;
+
+        let reloaded = find_by_id(&mut txn, &shelf.id).await?.unwrap();
+        let request = reloaded
+            .power_shelf_maintenance_requested
+            .expect("expected a maintenance request to be persisted");
+        assert_eq!(
+            request.operation,
+            PowerShelfMaintenanceOperation::PowerOff,
+            "operation should round-trip as PowerOff"
+        );
+        assert_eq!(request.initiator, "admin-cli");
+
+        Ok(())
+    }
+
+    /// Calling `set_power_shelf_maintenance_requested` a second time should
+    /// overwrite the previous request (e.g., switching from PowerOn to
+    /// PowerOff before the controller has acted on it).
+    #[crate::sqlx_test]
+    async fn test_set_power_shelf_maintenance_requested_overwrites(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await?;
+        let shelf = create_test_power_shelf(&mut txn, 3, "Overwrite shelf").await?;
+
+        set_power_shelf_maintenance_requested(
+            &mut txn,
+            shelf.id,
+            "first",
+            PowerShelfMaintenanceOperation::PowerOn,
+        )
+        .await?;
+        set_power_shelf_maintenance_requested(
+            &mut txn,
+            shelf.id,
+            "second",
+            PowerShelfMaintenanceOperation::PowerOff,
+        )
+        .await?;
+
+        let reloaded = find_by_id(&mut txn, &shelf.id).await?.unwrap();
+        let request = reloaded
+            .power_shelf_maintenance_requested
+            .expect("expected the second maintenance request to be persisted");
+        assert_eq!(request.operation, PowerShelfMaintenanceOperation::PowerOff);
+        assert_eq!(request.initiator, "second");
+
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
+    async fn test_clear_power_shelf_maintenance_requested(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await?;
+        let shelf = create_test_power_shelf(&mut txn, 4, "Clear shelf").await?;
+
+        // Test clearing both flavors of operation.
+        for operation in [
+            PowerShelfMaintenanceOperation::PowerOn,
+            PowerShelfMaintenanceOperation::PowerOff,
+        ] {
+            set_power_shelf_maintenance_requested(&mut txn, shelf.id, "operator", operation)
+                .await?;
+            assert!(
+                find_by_id(&mut txn, &shelf.id)
+                    .await?
+                    .unwrap()
+                    .power_shelf_maintenance_requested
+                    .is_some(),
+                "request should be set before clear (op={:?})",
+                operation
+            );
+
+            clear_power_shelf_maintenance_requested(&mut txn, shelf.id).await?;
+            assert!(
+                find_by_id(&mut txn, &shelf.id)
+                    .await?
+                    .unwrap()
+                    .power_shelf_maintenance_requested
+                    .is_none(),
+                "request should be cleared after clear (op={:?})",
+                operation
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Clearing a maintenance request when none is set must be a no-op
+    /// (idempotent), since the state controller may call this after the
+    /// request has already been cleared by another path.
+    #[crate::sqlx_test]
+    async fn test_clear_power_shelf_maintenance_requested_when_none(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await?;
+        let shelf = create_test_power_shelf(&mut txn, 5, "Idempotent clear shelf").await?;
+        assert!(shelf.power_shelf_maintenance_requested.is_none());
+
+        clear_power_shelf_maintenance_requested(&mut txn, shelf.id).await?;
+        let reloaded = find_by_id(&mut txn, &shelf.id).await?.unwrap();
+        assert!(reloaded.power_shelf_maintenance_requested.is_none());
+
+        Ok(())
+    }
 }

@@ -34,17 +34,19 @@ use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 
 pub mod address_selection_strategy;
+pub mod allocation_type;
 pub mod attestation;
 pub mod bmc_info;
+pub mod component_manager;
 pub mod compute_allocation;
 pub mod controller_outcome;
-pub mod dhcp_entry;
 pub mod dhcp_record;
 pub mod dns;
 pub mod dpa_interface;
 pub mod dpu_machine_update;
 pub mod dpu_remediation;
 pub mod errors;
+pub mod expected_entity;
 pub mod expected_machine;
 pub mod expected_power_shelf;
 pub mod expected_rack;
@@ -52,6 +54,7 @@ pub mod expected_switch;
 pub mod extension_service;
 pub mod firmware;
 pub mod hardware_info;
+pub mod health;
 pub mod host_machine_update;
 pub mod ib;
 pub mod ib_partition;
@@ -60,6 +63,7 @@ pub mod instance_address;
 pub mod instance_type;
 pub mod machine;
 pub mod machine_boot_override;
+pub mod machine_interface;
 pub mod machine_interface_address;
 pub mod machine_update_module;
 pub mod machine_validation;
@@ -68,9 +72,9 @@ pub mod network_devices;
 pub mod network_prefix;
 pub mod network_security_group;
 pub mod network_segment;
-pub mod network_segment_state_history;
 pub mod nvl_logical_partition;
 pub mod nvl_partition;
+pub mod operating_system_definition;
 pub mod os;
 pub mod power_manager;
 pub mod power_shelf;
@@ -78,13 +82,14 @@ pub mod predicted_machine_interface;
 pub mod pxe;
 pub mod rack;
 pub mod rack_firmware;
-pub mod rack_state_history;
 pub mod rack_type;
 pub mod redfish;
 pub mod resource_pool;
 pub mod route_server;
+pub mod rpc_conv;
 pub mod site_explorer;
 pub mod sku;
+pub mod state_history;
 pub mod storage;
 pub mod switch;
 pub mod tenant;
@@ -153,6 +158,11 @@ pub enum ConfigValidationError {
 
     #[error("Instance deletion request is already received.")]
     InstanceDeletionIsRequested,
+
+    #[error(
+        "Instance release is blocked: aggregate health includes a PreventInstanceDeletion alert. Remove the alert or the health override that carries it, then retry."
+    )]
+    InstanceReleaseBlockedByPreventInstanceDeletion,
 
     #[error("Instance is not Ready yet. Can't apply the config.")]
     InvalidState,

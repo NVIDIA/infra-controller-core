@@ -72,7 +72,7 @@ applicable.
 | `bios_profiles` | `BiosProfileVendor` | *(default)* | BIOS profiles by vendor/model for Redfish BIOS management. |
 | `selected_profile` | `BiosProfileType` | *(default)* | Default BIOS profile type applied to machines. |
 | `dpa_config` | `Option<DpaConfig>` | — | Cluster Interconnect (east-west Ethernet) config (see [DpaConfig](#dpaconfig)). |
-| `dsx_exchange_event_bus` | `Option<DsxExchangeEventBusConfig>` | — | MQTT event bus for publishing state transitions (see [DsxExchangeEventBusConfig](#dsxexchangeeventbusconfig)). |
+| `dsx_exchange_event_bus` | `Option<DsxExchangeEventBusConfig>` | — | MQTT event bus for managed-host state publishing plus BMS metadata subscription and rack/isolation/heartbeat publishing (see [DsxExchangeEventBusConfig](#dsxexchangeeventbusconfig)). |
 | `datacenter_asn` | `u32` | `11414` | Datacenter ASN used by FNN for DC-specific route targets. |
 | `nvlink_config` | `Option<NvLinkConfig>` | — | NvLink partitioning via NMX-M (see [NvLinkConfig](#nvlinkconfig)). |
 | `power_manager_options` | `PowerManagerOptions` | *(see below)* | Power management timing (see [PowerManagerOptions](#powermanageroptions)). |
@@ -82,9 +82,10 @@ applicable.
 | `mlxconfig_profiles` | `Option<HashMap<String, MlxConfigProfile>>` | — | Named Mellanox NIC register configuration profiles for superNIC firmware flashing. TOML key: `mlx-config-profiles`. |
 | `rack_management_enabled` | `bool` | `false` | Standalone infrastructure manager mode for GB200/GB300/VR144. See doc comment for full behavioral changes. |
 | `force_dpu_nic_mode` | `bool` | `false` | Treat DPUs as regular NICs (skip managed DPU config). For dev labs with BF DPUs. |
-| `rms_api_url` | `Option<String>` | — | Rack Manager Service API URL for rack-level firmware and power operations. |
-| `rack_types` | `RackTypeConfig` | *(default)* | Rack type definitions referenced by expected racks. |
+| `rms` | `RmsConfig` | *(see below)* | Rack Manager Service configuration for API connectivity and mTLS (see [RmsConfig](#rmsconfig)). |
+| `rack_profiles` | `RackProfileConfig` | *(default)* | Rack profile definitions referenced by expected racks. |
 | `spdm` | `SpdmConfig` | *(see below)* | SPDM hardware attestation (see [SpdmConfig](#spdmconfig)). |
+| `bgp_leaf_session_password` | `Option<BgpLeafSessionPassword>` | — | Selects the credential source for leaf-facing BGP session passwords returned to agents in managed host network config. Supported value: `site_wide`. |
 | `site_global_vpc_vni` | `Option<u32>` | — | Forces all VRFs to share a single VNI (Cumulus Linux route-leaking workaround). Limits DPU to one VRF. |
 | `dpf` | `DpfConfig` | *(see below)* | DPF (DPU Platform Framework) Kubernetes deployment (see [DpfConfig](#dpfconfig)). |
 | `x86_pxe_boot_url_override` | `Option<String>` | — | Override PXE boot URL for x86 machines. |
@@ -243,6 +244,7 @@ Extends `StateControllerConfig` with:
 | `dpu_models` | `HashMap<String, Firmware>` | *(BF2+BF3 defaults)* | DPU model firmware definitions. |
 | `dpu_nic_firmware_update_versions` | `Vec<String>` | *(BF2+BF3 NIC versions)* | DPU NIC firmware version strings. |
 | `dpu_enable_secure_boot` | `bool` | `false` | Enable secure boot flow for DPU provisioning via Redfish. |
+| `num_of_vfs` | `u32` | `16` | Number of VFs configured per DPU PF during BlueField provisioning. Max `126`. |
 
 ### `NetworkSecurityGroupConfig`
 
@@ -259,7 +261,26 @@ Extends `StateControllerConfig` with:
 | `admin_vpc` | `Option<AdminFnnConfig>` | — | FNN configuration for the admin network VPC. |
 | `common_internal_route_target` | `Option<RouteTargetConfig>` | — | Double-tag for internal tenant routes (consumed by the network infrastructure). |
 | `additional_route_target_imports` | `Vec<RouteTargetConfig>` | `[]` | Extra route targets imported on DPU VRFs. |
-| `routing_profiles` | `HashMap<String, FnnRoutingProfileConfig>` | `{}` | Named per-VPC routing profiles. |
+| `routing_profiles` | `HashMap<String, FnnRoutingProfileConfig>` | `{}` | Named per-VPC routing profiles (see [FnnRoutingProfileConfig](#fnnroutingprofileconfig)). |
+
+### `FnnRoutingProfileConfig`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `route_target_imports` | `Vec<RouteTargetConfig>` | `[]` | Route targets imported into DPU VRFs for VPC routes. |
+| `route_targets_on_exports` | `Vec<RouteTargetConfig>` | `[]` | Route targets added to routes exported by the DPU. |
+| `internal` | `bool` | `false` | Whether the profile uses internal VNI allocation. |
+| `leak_default_route_from_underlay` | `bool` | `false` | Leak the default route from the underlay/default VRF into tenant VRFs. |
+| `leak_tenant_host_routes_to_underlay` | `bool` | `false` | Leak tenant host routes into the underlay/default VRF. |
+| `tenant_leak_communities_accepted` | `bool` | `false` | Honor route-leak communities sent by the tenant host OS. |
+| `accepted_leaks_from_underlay` | `Vec<PrefixFilterPolicyEntry>` | `[]` | Specific underlay/default VRF prefixes allowed to leak into tenant VRFs. Routing only; does not affect ACLs. |
+| `access_tier` | `u32` | `0` | Routing profile access tier. Lower values grant broader access. |
+
+### `PrefixFilterPolicyEntry`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `prefix` | `IpNetwork` | **required** | IPv4 or IPv6 CIDR prefix accepted by a prefix-list policy. |
 
 ### `DpaConfig`
 
@@ -277,11 +298,11 @@ Extends `StateControllerConfig` with:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `enabled` | `bool` | `false` | Enable the DSX Exchange Event Bus. |
+| `enabled` | `bool` | `false` | Enable the DSX Exchange Event Bus for managed-host state publishing, BMS metadata subscription, and BMS rack/isolation/heartbeat publishing. |
 | `mqtt_endpoint` | `String` | `"mqtt.nico"` | MQTT broker host. |
 | `mqtt_broker_port` | `u16` | `1884` | MQTT broker port. |
 | `publish_timeout` | `Duration` | `1s` | Timeout for MQTT publish operations. |
-| `queue_capacity` | `usize` | `1024` | Event buffer size (events dropped when full). |
+| `queue_capacity` | `usize` | `1024` | Event buffer size for DSX publish work (events dropped when full). |
 | `auth` | `MqttAuthConfig` | *(none)* | MQTT authentication settings. |
 
 ### `DpfConfig`
@@ -292,6 +313,16 @@ Extends `StateControllerConfig` with:
 | `bfb_url` | `String` | `""` | BlueField firmware bundle URL. |
 | `deployment_name` | `Option<String>` | — | Kubernetes deployment name. |
 | `services` | `Option<Vec<DpfServiceConfig>>` | — | Additional Helm services. |
+
+### `RmsConfig`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `api_url` | `Option<String>` | — | RMS API URL for rack-level firmware upgrades and power sequencing. |
+| `root_ca_path` | `Option<String>` | — | Path to the root CA certificate for TLS verification. |
+| `client_cert` | `Option<String>` | — | Path to the client certificate PEM for mTLS. |
+| `client_key` | `Option<String>` | — | Path to the client private key PEM for mTLS. |
+| `enforce_tls` | `bool` | `true` | Enforce TLS when connecting to RMS. |
 
 ### `SpdmConfig`
 
@@ -304,7 +335,7 @@ Extends `StateControllerConfig` with:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `enabled` | `bool` | `true` | Master switch for machine identity APIs. |
+| `enabled` | `bool` | `false` | Master switch for machine identity APIs (opt-in; set `true` with `current_encryption_key_id` and credentials). |
 | `algorithm` | `String` | `"ES256"` | Signing algorithm for per-org keys. |
 | `token_ttl_min_sec` | `u32` | `60` | Minimum token TTL in seconds. |
 | `token_ttl_max_sec` | `u32` | `86400` | Maximum token TTL in seconds. |

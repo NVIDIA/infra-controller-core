@@ -14,35 +14,43 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
+use std::path::PathBuf;
 use std::sync::Arc;
 
+use carbide_utils::HostPortPair;
 use eyre::WrapErr;
-use forge_secrets::{CredentialConfig, create_credential_manager, create_vault_client};
+use forge_secrets::credentials::{CredentialReader, CredentialWriter};
+use forge_secrets::{CredentialConfig, create_credential_manager_from, create_vault_client};
 use tokio::sync::oneshot::Sender;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing::subscriber::NoSubscriber;
-use utils::HostPortPair;
 
 use crate::logging::metrics_endpoint::{MetricsEndpointConfig, run_metrics_endpoint};
 use crate::logging::setup::{
     Logging, create_metric_for_spancount_reader, create_metrics, setup_logging,
 };
-use crate::nv_redfish::NvRedfishClientPool;
-use crate::redfish::RedfishClientPoolImpl;
 use crate::{CarbideError, dynamic_settings, setup};
 
 pub async fn run(
     debug: u8,
-    config_str: String,
-    site_config_str: Option<String>,
+    config_str: PathBuf,
+    site_config_str: Option<PathBuf>,
     credential_config: CredentialConfig,
     skip_logging_setup: bool,
     cancel_token: CancellationToken,
     ready_channel: Sender<()>,
 ) -> eyre::Result<()> {
-    let carbide_config = setup::parse_carbide_config(config_str, site_config_str)?;
+    let carbide_config = setup::parse_carbide_config(&config_str, site_config_str.as_deref())?;
+
+    // If `CarbideConfig.initial_objects_file` is set, load it into an
+    // `InitialObjectsConfig` so that `start_api` can reconcile its contents
+    // against the database on first startup.
+    let initial_objects = if let Some(path) = carbide_config.initial_objects_file.as_deref() {
+        Some(setup::parse_initial_objects_config(path)?)
+    } else {
+        None
+    };
 
     // Reject config that contains overlaps between deny_prefixes and site_fabric_prefixes.
     // deny_prefixes are IPv4-only; only check against IPv4 site fabric prefixes.
@@ -118,6 +126,7 @@ pub async fn run(
 
     let dynamic_settings = crate::dynamic_settings::DynamicSettings {
         log_filter: tconf.filter.clone(),
+        site_explorer_enabled: carbide_config.site_explorer.enabled.clone(),
         create_machines: carbide_config.site_explorer.create_machines.clone(),
         bmc_proxy: carbide_config.site_explorer.bmc_proxy.clone(),
         tracing_enabled: tconf.tracing_enabled,
@@ -138,11 +147,49 @@ pub async fn run(
 
     let certificate_provider =
         create_vault_client(&credential_config.vault, metrics.meter.clone())?;
-    let credential_manager =
-        create_credential_manager(&credential_config, metrics.meter.clone()).await?;
+
+    // Build credential reader chain. The idea is this chain
+    // can be flexible, to allow us to introduce an ordered
+    // list of readers, which we build on-demand based on
+    // configuration.
+    let mut readers: Vec<Box<dyn CredentialReader>> = Vec::new();
+
+    // If EnvCredentials are enabled, then add that
+    // to our chained credentials reader. It's expected
+    // that this comes first if configured.
+    if credential_config.env.enabled() {
+        readers.push(Box::new(
+            forge_secrets::local_credentials::EnvCredentials::new(credential_config.env.clone())?,
+        ));
+    }
+
+    // Next, if FileCredentials are enabled, then
+    // add those in as well. We expect these *after*
+    // EnvCredentials.
+    if credential_config.file.enabled() {
+        readers.push(Box::new(
+            forge_secrets::local_credentials::FileCredentialsWatcher::new(
+                credential_config.file.clone(),
+            )
+            .await?,
+        ));
+    }
+
+    // Last, we tack on the VaultClient to the end.
+    let vault_client = create_vault_client(&credential_config.vault, metrics.meter.clone())?;
+    readers.push(Box::new(vault_client.clone()));
+
+    // And our vault_client is also implemented as the writer.
+    let writer: Arc<dyn CredentialWriter> = vault_client;
+
+    // And now we create our new composite credential manager
+    // from the list of readers we just built, plus the Vault
+    // client.
+    let credential_manager = create_credential_manager_from(writer, readers);
 
     let redfish_pool = {
         let rf_pool = libredfish::RedfishClientPool::builder()
+            .danger_accept_invalid_certs()
             .build()
             .map_err(CarbideError::from)?;
 
@@ -189,21 +236,20 @@ pub async fn run(
             (None, None, _) => {} // leave bmc_proxy untouched
         }
 
-        let redfish_pool = RedfishClientPoolImpl::new(
+        carbide_redfish::libredfish::new_pool(
             credential_manager.clone(),
             rf_pool,
             carbide_config.site_explorer.bmc_proxy.clone(),
-        );
-        Arc::new(redfish_pool)
+        )
     };
 
-    let nv_redfish_pool = Arc::new(NvRedfishClientPool::new(
-        carbide_config.site_explorer.bmc_proxy.clone(),
-    ));
+    let nv_redfish_pool =
+        carbide_redfish::nv_redfish::new_pool(carbide_config.site_explorer.bmc_proxy.clone());
 
     setup::start_api(
         &mut join_set,
         carbide_config,
+        initial_objects,
         metrics.meter,
         dynamic_settings,
         redfish_pool,

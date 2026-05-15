@@ -21,7 +21,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::SecretsError;
 use crate::credentials::{
-    CredentialKey, CredentialReader, CredentialType, Credentials, MqttCredentialType,
+    BmcCredentialType, CredentialKey, CredentialReader, CredentialType, Credentials,
+    MqttCredentialType,
 };
 
 mod env;
@@ -58,6 +59,14 @@ impl From<Credentials> for UsernamePassword {
     }
 }
 
+/// Machine identity credentials (encryption keys for signing keys and token delegation).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct MachineIdentityConfig {
+    /// Map of encryption key id (e.g. `kv1`) to base64-encoded 32-byte AES key material (`openssl rand -base64 32`).
+    pub encryption_keys: HashMap<String, String>,
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
 pub struct CredentialSnapshot {
@@ -71,6 +80,8 @@ pub struct CredentialSnapshot {
     pub host_uefi_site_default: Option<UsernamePassword>,
     pub nmxm_auth_by_id: HashMap<String, UsernamePassword>,
     pub mqtt_auth_by_credential_type: HashMap<MqttCredentialType, UsernamePassword>,
+    pub machine_identity: Option<MachineIdentityConfig>,
+    pub bmc_site_wide_root: Option<UsernamePassword>,
 }
 
 impl CredentialSnapshot {
@@ -117,6 +128,17 @@ impl CredentialSnapshot {
                 .get(credential_type)
                 .cloned()
                 .map(Into::into),
+            CredentialKey::MachineIdentityEncryptionKey { key_id } => self
+                .machine_identity
+                .as_ref()
+                .and_then(|mi| mi.encryption_keys.get(key_id).cloned())
+                .map(|secret| Credentials::UsernamePassword {
+                    username: key_id.clone(),
+                    password: secret,
+                }),
+            CredentialKey::BmcCredentials {
+                credential_type: BmcCredentialType::SiteWideRoot,
+            } => self.bmc_site_wide_root.clone().map(Into::into),
             _ => None,
         }
     }
@@ -135,7 +157,6 @@ impl CredentialReader for CredentialSnapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::credentials::BmcCredentialType;
 
     fn up(user: &str, pass: &str) -> UsernamePassword {
         UsernamePassword {
@@ -175,6 +196,8 @@ mod tests {
                 MqttCredentialType::Dpa,
                 up("mqtt-u", "mqtt-p"),
             )]),
+            machine_identity: None,
+            bmc_site_wide_root: None,
         }
     }
 
@@ -295,12 +318,21 @@ mod tests {
     }
 
     #[test]
+    fn snapshot_bmc_site_wide_root() {
+        let snap = CredentialSnapshot {
+            bmc_site_wide_root: Some(up("bmc-u", "bmc-p")),
+            ..Default::default()
+        };
+        let key = CredentialKey::BmcCredentials {
+            credential_type: BmcCredentialType::SiteWideRoot,
+        };
+        assert_eq!(snap.get_credentials(&key), Some(cred("bmc-u", "bmc-p")));
+    }
+
+    #[test]
     fn snapshot_unsupported_keys_return_none() {
         let snap = populated_snapshot();
         let keys: Vec<CredentialKey> = vec![
-            CredentialKey::BmcCredentials {
-                credential_type: BmcCredentialType::SiteWideRoot,
-            },
             CredentialKey::ExtensionService {
                 service_id: "svc".to_string(),
                 version: "1".to_string(),
@@ -337,5 +369,30 @@ mod tests {
             credential_type: CredentialType::SiteDefault,
         };
         assert_eq!(snap.get_credentials(&key), None);
+    }
+
+    #[test]
+    fn snapshot_machine_identity_encryption_key() {
+        let mut encryption_keys = HashMap::new();
+        encryption_keys.insert("v1".to_string(), "secret-1".to_string());
+        encryption_keys.insert("v2".to_string(), "secret-2".to_string());
+        let snap = CredentialSnapshot {
+            machine_identity: Some(MachineIdentityConfig { encryption_keys }),
+            ..Default::default()
+        };
+
+        let v1 = CredentialKey::MachineIdentityEncryptionKey {
+            key_id: "v1".to_string(),
+        };
+        let v2 = CredentialKey::MachineIdentityEncryptionKey {
+            key_id: "v2".to_string(),
+        };
+        let missing = CredentialKey::MachineIdentityEncryptionKey {
+            key_id: "v3".to_string(),
+        };
+
+        assert_eq!(snap.get_credentials(&v1), Some(cred("v1", "secret-1")));
+        assert_eq!(snap.get_credentials(&v2), Some(cred("v2", "secret-2")));
+        assert_eq!(snap.get_credentials(&missing), None);
     }
 }

@@ -23,8 +23,8 @@ use dashmap::DashMap;
 
 use super::{EventContext, EventProcessor};
 use crate::sink::{
-    Classification, CollectorEvent, HealthReport, HealthReportAlert, HealthReportSuccess, Probe,
-    ReportSource,
+    Classification, CollectorEvent, HealthReport, HealthReportAlert, HealthReportSuccess,
+    HealthReportTarget, Probe, ReportSource,
 };
 
 struct RackLeakState {
@@ -48,6 +48,7 @@ impl RackLeakProcessor {
         if leaking_count >= self.leaking_tray_threshold {
             HealthReport {
                 source: ReportSource::RackLeakDetection,
+                target: Some(HealthReportTarget::Rack),
                 observed_at: Some(chrono::Utc::now()),
                 successes: vec![],
                 alerts: vec![HealthReportAlert {
@@ -63,6 +64,7 @@ impl RackLeakProcessor {
         } else {
             HealthReport {
                 source: ReportSource::RackLeakDetection,
+                target: Some(HealthReportTarget::Rack),
                 observed_at: Some(chrono::Utc::now()),
                 successes: vec![HealthReportSuccess {
                     probe_id: Probe::LeakDetection,
@@ -84,11 +86,22 @@ impl EventProcessor for RackLeakProcessor {
             return Vec::new();
         };
 
+        if matches!(event, CollectorEvent::CollectorRemoved) {
+            if let Some(mut entry) = self.racks.get_mut(rack_id) {
+                entry.leaking_trays.remove(context.endpoint_key());
+            }
+            return Vec::new();
+        }
+
         let CollectorEvent::HealthReport(report) = event else {
             return Vec::new();
         };
 
         if report.source != ReportSource::TrayLeakDetection {
+            return Vec::new();
+        }
+
+        if report.target != Some(HealthReportTarget::Machine) {
             return Vec::new();
         }
 
@@ -157,6 +170,7 @@ mod tests {
         let report = if leaking {
             HealthReport {
                 source: ReportSource::TrayLeakDetection,
+                target: Some(HealthReportTarget::Machine),
                 observed_at: Some(chrono::Utc::now()),
                 successes: vec![],
                 alerts: vec![HealthReportAlert {
@@ -169,6 +183,7 @@ mod tests {
         } else {
             HealthReport {
                 source: ReportSource::TrayLeakDetection,
+                target: Some(HealthReportTarget::Machine),
                 observed_at: Some(chrono::Utc::now()),
                 successes: vec![HealthReportSuccess {
                     probe_id: Probe::LeakDetection,
@@ -186,6 +201,7 @@ mod tests {
         let ctx = context_with_rack("42:9e:b1:bd:9d:dd", "rack-1");
         let report = HealthReport {
             source: ReportSource::BmcSensors,
+            target: Some(HealthReportTarget::Machine),
             observed_at: None,
             successes: vec![],
             alerts: vec![],
@@ -215,6 +231,7 @@ mod tests {
             panic!("expected health report");
         };
         assert_eq!(report.source, ReportSource::RackLeakDetection);
+        assert_eq!(report.target, Some(HealthReportTarget::Rack));
         assert!(report.alerts.is_empty());
         assert_eq!(report.successes.len(), 1);
     }
@@ -233,6 +250,7 @@ mod tests {
             panic!("expected health report");
         };
         assert_eq!(report.source, ReportSource::RackLeakDetection);
+        assert_eq!(report.target, Some(HealthReportTarget::Rack));
         assert_eq!(report.alerts.len(), 1);
         assert!(report.alerts[0].message.contains("2 leaking trays"));
     }
@@ -275,6 +293,26 @@ mod tests {
             panic!("expected health report");
         };
         assert_eq!(report.alerts.len(), 1, "rack should still be in alert");
+    }
+
+    #[test]
+    fn removed_tray_is_no_longer_counted() {
+        let processor = RackLeakProcessor::new(2);
+
+        let ctx_a = context_with_rack("42:9e:b1:bd:9d:dd", "rack-1");
+        let ctx_b = context_with_rack("42:9e:b1:bd:9d:ee", "rack-1");
+
+        processor.process_event(&ctx_a, &tray_leak_report(true));
+        processor.process_event(&ctx_b, &tray_leak_report(true));
+
+        let emitted = processor.process_event(&ctx_a, &CollectorEvent::CollectorRemoved);
+
+        assert!(emitted.is_empty());
+        let Some(rack) = processor.racks.get(ctx_a.rack_id().expect("rack id")) else {
+            panic!("expected rack state");
+        };
+        assert_eq!(rack.leaking_trays.len(), 1);
+        assert!(rack.leaking_trays.contains(ctx_b.endpoint_key()));
     }
 
     #[test]

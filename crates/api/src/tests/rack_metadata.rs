@@ -15,16 +15,24 @@
  * limitations under the License.
  */
 
-use carbide_uuid::rack::RackId;
-use db::{DatabaseError, rack as db_rack};
+use carbide_uuid::rack::{RackId, RackProfileId};
+use db::{DatabaseError, ObjectColumnFilter, rack as db_rack};
 use model::metadata::Metadata;
+use model::rack::RackConfig;
 
 #[crate::sqlx_test]
 async fn test_rack_metadata_defaults(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = pool.begin().await?;
     let rack_id = RackId::new("test-rack-1".to_string());
 
-    let rack = db_rack::create(&mut txn, &rack_id, vec![], vec![], vec![], None).await?;
+    let rack = db_rack::create(
+        &mut txn,
+        &rack_id,
+        Some(&RackProfileId::new("NVL72")),
+        &RackConfig::default(),
+        None,
+    )
+    .await?;
 
     // Default metadata: name = rack_id, description empty, no labels
     assert_eq!(rack.metadata.name, rack_id.to_string());
@@ -54,9 +62,8 @@ async fn test_rack_metadata_from_expected(
     let rack = db_rack::create(
         &mut txn,
         &rack_id,
-        vec![],
-        vec![],
-        vec![],
+        Some(&RackProfileId::new("NVL72")),
+        &RackConfig::default(),
         Some(&expected_metadata),
     )
     .await?;
@@ -77,7 +84,14 @@ async fn test_rack_metadata_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     let mut txn = pool.begin().await?;
     let rack_id = RackId::new("test-rack-3".to_string());
 
-    let rack = db_rack::create(&mut txn, &rack_id, vec![], vec![], vec![], None).await?;
+    let rack = db_rack::create(
+        &mut txn,
+        &rack_id,
+        Some(&RackProfileId::new("NVL72")),
+        &RackConfig::default(),
+        None,
+    )
+    .await?;
     let version1 = rack.version;
 
     let new_metadata = Metadata {
@@ -90,7 +104,14 @@ async fn test_rack_metadata_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
 
     db_rack::update_metadata(&mut txn, &rack_id, version1, new_metadata.clone()).await?;
 
-    let updated_rack = db_rack::get(&mut *txn, &rack_id).await?;
+    let updated_rack = db_rack::find_by(
+        txn.as_mut(),
+        ObjectColumnFilter::One(db_rack::IdColumn, &rack_id),
+    )
+    .await
+    .unwrap()
+    .pop()
+    .unwrap();
     assert_eq!(updated_rack.metadata.name, "Updated Rack");
     assert_eq!(updated_rack.metadata.description, "Updated description");
     assert_eq!(
@@ -110,7 +131,14 @@ async fn test_rack_metadata_version_conflict(
     let mut txn = pool.begin().await?;
     let rack_id = RackId::new("test-rack-4".to_string());
 
-    let rack = db_rack::create(&mut txn, &rack_id, vec![], vec![], vec![], None).await?;
+    let rack = db_rack::create(
+        &mut txn,
+        &rack_id,
+        Some(&RackProfileId::new("NVL72")),
+        &RackConfig::default(),
+        None,
+    )
+    .await?;
     let version1 = rack.version;
 
     let metadata = Metadata {

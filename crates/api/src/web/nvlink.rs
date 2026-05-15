@@ -28,7 +28,7 @@ use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
 use uuid::Uuid;
 
-//use super::filters;
+use super::Base;
 use crate::api::Api;
 
 #[derive(serde::Serialize, Template)]
@@ -244,7 +244,7 @@ async fn fetch_logical_partitions(
             .find_nv_link_logical_partitions_by_ids(request_partitions)
             .await
             .map(|response| response.into_inner())?;
-        partitions.extend(next_partitions.partitions.into_iter());
+        partitions.extend(next_partitions.partitions);
     } else {
         let mut offset = 0;
         while offset != partition_ids.len() {
@@ -261,7 +261,7 @@ async fn fetch_logical_partitions(
                 .await
                 .map(|response| response.into_inner())?;
 
-            partitions.extend(next_partitions.partitions.into_iter());
+            partitions.extend(next_partitions.partitions);
             offset += page_size;
         }
     }
@@ -319,7 +319,7 @@ async fn fetch_logical_partitions(
                     .await?
                     .into_inner();
 
-                machines.extend(next_vpcs.machines.into_iter());
+                machines.extend(next_vpcs.machines);
                 offset += page_size;
             }
 
@@ -381,3 +381,6 @@ async fn fetch_logical_partitions(
 
     Ok(show_partitions)
 }
+
+impl super::Base for LogicalPartitionShow {}
+impl super::Base for LogicalPartitionDetail {}

@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: nico-hardware-health
+  namespace: {{ include "nico-hardware-health.namespace" . }}
+  labels:
+    {{- include "nico-hardware-health.labels" . | nindent 4 }}
+    app: nico-hardware-health
+    app.kubernetes.io/metrics: nico-hardware-health
+spec:
+  selector:
+    {{- include "nico-hardware-health.selectorLabels" . | nindent 4 }}
+  ports:
+    - port: {{ .Values.service.port }}
+      name: metrics
+      protocol: TCP

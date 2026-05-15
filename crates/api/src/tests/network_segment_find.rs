@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+#![allow(deprecated)]
+
 use ::rpc::forge as rpc;
 use carbide_uuid::network::NetworkSegmentId;
 use rpc::forge_server::Forge;
@@ -165,9 +167,23 @@ async fn test_find_network_segment_by_ids(pool: sqlx::PgPool) {
     assert_eq!(seg_list.network_segments.len(), 2);
 
     for segment in seg_list.network_segments {
-        assert!(!segment.prefixes.is_empty());
+        assert!(
+            !segment
+                .config
+                .as_ref()
+                .expect("segment config must be present")
+                .prefixes
+                .is_empty()
+        );
         assert!(!segment.history.is_empty());
-        assert_ne!(!segment.prefixes[0].free_ip_count, 0);
+        assert!(
+            segment
+                .config
+                .as_ref()
+                .and_then(|c| c.prefixes.first())
+                .map_or(0, |p| p.free_ip_count)
+                > 0
+        );
     }
 }
 

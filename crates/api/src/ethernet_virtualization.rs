@@ -14,15 +14,20 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use std::net::IpAddr;
+
 use ::rpc::forge as rpc;
 use carbide_network::virtualization::{VpcVirtualizationType, get_svi_ip};
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
+use carbide_uuid::network::NetworkSegmentId;
 use db::vpc::{self};
 use db::vpc_peering::get_prefixes_by_vpcs;
 use db::{self, ObjectColumnFilter, network_security_group};
 use ipnetwork::{IpNetwork, Ipv4Network};
 use model::instance::config::network::{InstanceInterfaceConfig, InterfaceFunctionId};
+use model::machine::ManagedHostStateSnapshot;
+use model::network_prefix::NetworkPrefix;
 use model::network_security_group::{
     NetworkSecurityGroup, NetworkSecurityGroupRule, NetworkSecurityGroupRuleNet,
 };
@@ -78,15 +83,162 @@ impl SiteFabricPrefixList {
     }
 }
 
+/// Groups the optional IPv4 prefix with the optional IPv6 prefix for a
+/// dual-stack network segment, and provides convenience methods for
+/// extracting addresses and interface prefixes from an InstanceInterfaceConfig.
+struct PrefixPair<'a> {
+    v4: Option<&'a NetworkPrefix>,
+    v6: Option<&'a NetworkPrefix>,
+}
+
+impl<'a> PrefixPair<'a> {
+    /// Find the IPv4 (optional) and IPv6 (optional) prefixes from a slice.
+    fn from_segment_prefixes(
+        prefixes: &'a [NetworkPrefix],
+        _instance_id: InstanceId,
+        _segment_id: carbide_uuid::network::NetworkSegmentId,
+    ) -> Result<Self, CarbideError> {
+        let v4 = prefixes.iter().find(|p| p.prefix.is_ipv4());
+        let v6 = prefixes.iter().find(|p| p.prefix.is_ipv6());
+        Ok(Self { v4, v6 })
+    }
+
+    /// Return the IPv4 prefix, if present.
+    fn v4(&self) -> Option<&NetworkPrefix> {
+        self.v4
+    }
+
+    /// Return the IPv6 prefix, if present.
+    #[allow(dead_code)]
+    fn v6(&self) -> Option<&NetworkPrefix> {
+        self.v6
+    }
+
+    /// Extract the IPv4 address from the interface config, if a v4 prefix is present.
+    fn v4_address(&self, iface: &InstanceInterfaceConfig) -> Option<IpAddr> {
+        self.v4.and_then(|p| iface.ip_addrs.get(&p.id).copied())
+    }
+
+    /// Extract the IPv6 address (if an IPv6 prefix exists and the interface
+    /// has an address allocated for it).
+    fn v6_address(&self, iface: &InstanceInterfaceConfig) -> Option<IpAddr> {
+        self.v6.and_then(|p| iface.ip_addrs.get(&p.id).copied())
+    }
+
+    /// Extract the IPv4 interface prefix, falling back to a /32 derived from
+    /// the address for backwards compatibility. Returns None if no v4 prefix.
+    fn v4_interface_prefix(
+        &self,
+        iface: &InstanceInterfaceConfig,
+        address: IpAddr,
+    ) -> Result<Option<IpNetwork>, CarbideError> {
+        let Some(v4) = self.v4 else {
+            return Ok(None);
+        };
+        match iface.interface_prefixes.get(&v4.id) {
+            Some(p) => Ok(Some(*p)),
+            None => IpNetwork::new(address, 32)
+                .map(Some)
+                .map_err(|e| CarbideError::Internal {
+                    message: format!(
+                        "failed to build default interface_prefix for {address}/32: {e}"
+                    ),
+                }),
+        }
+    }
+
+    /// Extract the IPv6 interface prefix (if present).
+    fn v6_interface_prefix(&self, iface: &InstanceInterfaceConfig) -> Option<IpNetwork> {
+        self.v6
+            .and_then(|p| iface.interface_prefixes.get(&p.id).copied())
+    }
+
+    /// Compute the SVI IP for an L2 FNN segment, returning both v4 and v6
+    /// SVI IPs as optional strings.
+    fn svi_ips(
+        &self,
+        network_virtualization_type: VpcVirtualizationType,
+        is_l2_segment: bool,
+    ) -> Result<(Option<String>, Option<String>), CarbideError> {
+        let svi_ip = self
+            .v4
+            .map(|p| {
+                get_svi_ip(
+                    &p.svi_ip,
+                    network_virtualization_type,
+                    is_l2_segment,
+                    p.prefix.prefix(),
+                )
+            })
+            .transpose()
+            .map_err(|e| CarbideError::Internal {
+                message: format!("failed to configure FlatInterfaceConfig.svi_ip: {e}"),
+            })?
+            .flatten()
+            .map(|ip| ip.to_string());
+
+        let svi_ip_v6 = self
+            .v6
+            .and_then(|p| {
+                get_svi_ip(
+                    &p.svi_ip,
+                    network_virtualization_type,
+                    is_l2_segment,
+                    p.prefix.prefix(),
+                )
+                .transpose()
+            })
+            .transpose()
+            .map_err(|e| CarbideError::Internal {
+                message: format!("failed to configure FlatInterfaceConfig.svi_ip_v6: {e}"),
+            })?
+            .map(|ip| ip.to_string());
+
+        Ok((svi_ip, svi_ip_v6))
+    }
+}
+
 pub async fn admin_network(
     txn: &mut PgConnection,
-    host_machine_id: &MachineId,
+    snapshot: &ManagedHostStateSnapshot,
     dpu_machine_id: &MachineId,
     fnn_enabled_on_admin: bool,
     common_pools: &CommonPools,
     booturl: &Option<String>,
+    use_vpc_vrf_loopback: bool,
 ) -> Result<(rpc::FlatInterfaceConfig, MachineInterfaceId), tonic::Status> {
-    let admin_segment = db::network_segment::admin(txn).await?;
+    let admin_segments = db::network_segment::admin(txn).await?;
+    let admin_segment_ids = admin_segments
+        .iter()
+        .map(|s| s.id)
+        .collect::<Vec<NetworkSegmentId>>();
+
+    // Admin network interfaces are machine_interfaces records where the machine_id
+    // is a host machine ID and attached_dpu_machine_id is a DPU ID.
+    // If we loop through the machine interfaces for the host snapshot and look for
+    // that combo, the segment_id of that interface should be the network segment we want,
+    // but checking against known admin segments adds a little bit of defense.
+    let interface = snapshot.host_snapshot.interfaces.iter().find(|interface| {
+        interface.attached_dpu_machine_id.as_ref() == Some(dpu_machine_id)
+            && admin_segment_ids.contains(&interface.segment_id)
+    });
+
+    let host_machine_id = snapshot.host_snapshot.id;
+    let Some(interface) = interface else {
+        return Err(CarbideError::InvalidArgument(format!(
+            "No admin interface found attached on host: {host_machine_id} with dpu: {dpu_machine_id}"
+        ))
+        .into());
+    };
+
+    let admin_segment = admin_segments.iter().find(|v| v.id == interface.segment_id);
+
+    let Some(admin_segment) = admin_segment else {
+        return Err(CarbideError::internal(format!(
+            "Unknown admin segment `{}` attached on host: {host_machine_id} with dpu: {dpu_machine_id}", interface.segment_id
+        ))
+        .into());
+    };
 
     let prefix = match admin_segment.prefixes.first() {
         Some(p) => p,
@@ -101,7 +253,7 @@ pub async fn admin_network(
         }
     };
 
-    let domain = match admin_segment.subdomain_id {
+    let domain = match admin_segment.config.subdomain_id {
         Some(domain_id) => {
             db::dns::domain::find_by_uuid(&mut *txn, domain_id)
                 .await
@@ -115,37 +267,24 @@ pub async fn admin_network(
         None => "unknowndomain".to_string(),
     };
 
-    let interfaces =
-        db::machine_interface::find_by_machine_and_segment(txn, host_machine_id, admin_segment.id)
-            .await?;
-
-    let interface = interfaces.into_iter().find(|x| {
-        if let Some(id) = &x.attached_dpu_machine_id {
-            id == dpu_machine_id
-        } else {
-            false
-        }
-    });
-
-    let Some(interface) = interface else {
-        return Err(CarbideError::InvalidArgument(format!(
-            "No interface found attached on host: {host_machine_id} with dpu: {dpu_machine_id}"
-        ))
-        .into());
-    };
-
-    let address = db::machine_interface_address::find_ipv4_for_interface(txn, interface.id).await?;
+    let address = interface
+        .addresses
+        .iter()
+        .copied()
+        .find(|address| address.is_ipv4())
+        .ok_or_else(|| {
+            CarbideError::InvalidArgument(format!(
+                "No IPv4 address found on host interface {} for dpu: {dpu_machine_id}",
+                interface.id
+            ))
+        })?;
 
     // On the admin network, the interface_prefix is always
     // just going to be a /32 derived from the machine interface
     // address.
-    let address_prefix =
-        IpNetwork::new(address.address, 32).map_err(|e| CarbideError::Internal {
-            message: format!(
-                "failed to build default admin address prefix for {}/32: {}",
-                address.address, e
-            ),
-        })?;
+    let address_prefix = IpNetwork::new(address, 32).map_err(|e| CarbideError::Internal {
+        message: format!("failed to build default admin address prefix for {address}/32: {e}"),
+    })?;
 
     let svi_ip = if !fnn_enabled_on_admin {
         None
@@ -165,7 +304,7 @@ pub async fn admin_network(
     let (vpc_vni, tenant_vrf_loopback_ip) = if !fnn_enabled_on_admin {
         (0, None)
     } else {
-        match admin_segment.vpc_id {
+        match admin_segment.config.vpc_id {
             Some(vpc_id) => {
                 let mut vpcs =
                     db::vpc::find_by(&mut *txn, ObjectColumnFilter::One(vpc::IdColumn, &vpc_id))
@@ -176,16 +315,22 @@ pub async fn admin_network(
                 let vpc = vpcs.remove(0);
                 match vpc.status.and_then(|v| v.vni) {
                     Some(vpc_vni) => {
-                        let tenant_loopback_ip =
-                            db::vpc_dpu_loopback::get_or_allocate_loopback_ip_for_vpc(
-                                common_pools,
-                                txn,
-                                dpu_machine_id,
-                                &vpc.id,
+                        let tenant_loopback_ip = if use_vpc_vrf_loopback {
+                            Some(
+                                db::vpc_dpu_loopback::get_or_allocate_loopback_ip_for_vpc(
+                                    common_pools,
+                                    txn,
+                                    dpu_machine_id,
+                                    &vpc.id,
+                                )
+                                .await?
+                                .to_string(),
                             )
-                            .await?;
+                        } else {
+                            None
+                        };
 
-                        (vpc_vni as u32, Some(tenant_loopback_ip.to_string()))
+                        (vpc_vni as u32, tenant_loopback_ip)
                     }
                     None => {
                         // if FNN is enabled, VPC must be created and updated in admin_segment.
@@ -209,18 +354,18 @@ pub async fn admin_network(
     let cfg = rpc::FlatInterfaceConfig {
         function_type: rpc::InterfaceFunctionType::Physical.into(),
         virtual_function_id: None,
-        vlan_id: admin_segment.vlan_id.unwrap_or_default() as u32,
+        vlan_id: admin_segment.status.vlan_id.unwrap_or_default() as u32,
         vni: if fnn_enabled_on_admin {
-            admin_segment.vni.unwrap_or_default() as u32
+            admin_segment.status.vni.unwrap_or_default() as u32
         } else {
             0
         },
         vpc_vni,
         gateway: prefix.gateway_cidr().unwrap_or_default(),
-        ip: address.address.to_string(),
+        ip: address.to_string(),
         interface_prefix: address_prefix.to_string(),
         vpc_prefixes: if fnn_enabled_on_admin {
-            vec![format!("{}/32", address.address.to_string())]
+            vec![format!("{address}/32")]
         } else {
             vec![]
         },
@@ -234,7 +379,8 @@ pub async fn admin_network(
         vpc_peer_vnis: vec![],
         network_security_group: None,
         internal_uuid: None,
-        mtu: u32::try_from(admin_segment.mtu).ok(),
+        mtu: u32::try_from(admin_segment.config.mtu).ok(),
+        ipv6_interface_config: None,
     };
     Ok((cfg, interface.id))
 }
@@ -254,46 +400,34 @@ pub async fn tenant_network(
     booturl: &Option<String>,
 ) -> Result<rpc::FlatInterfaceConfig, tonic::Status> {
     // Any stretchable segment is treated as L2 segment by FNN.
-    let is_l2_segment = segment.can_stretch.unwrap_or(true);
+    let is_l2_segment = segment.status.can_stretch.unwrap_or(true);
 
-    let v4_prefix = segment
-        .prefixes
-        .iter()
-        .find(|prefix| prefix.prefix.is_ipv4())
-        .ok_or_else(|| CarbideError::Internal {
-            message: format!(
-                "No IPv4 prefix is available for instance {} on segment {}",
-                instance_id, segment.id
-            ),
-        })?;
+    let ds = PrefixPair::from_segment_prefixes(&segment.prefixes, instance_id, segment.id)?;
+    let address = ds.v4_address(iface).ok_or_else(|| CarbideError::Internal {
+        message: format!(
+            "No IPv4 address is available for instance {instance_id} on segment {}",
+            segment.id,
+        ),
+    })?;
 
-    let address = iface
-        .ip_addrs
-        .get(&v4_prefix.id)
-        .ok_or_else(|| CarbideError::Internal {
-            message: format!(
-                "No IPv4 address is available for instance {} on segment {}",
-                instance_id, segment.id
-            ),
-        })?;
-
-    // Assuming an `address` was found above, look to see if a prefix
-    // is explicitly configured here. If not, default to a /32, which
-    // is our default fallback for cases of instances which were configured
-    // before interface_prefixes were introduced.
+    // If not, default to a /32 -- backwards compatibility for instances
+    // configured before interface_prefixes were introduced.
     //
     // TODO(chet): This can eventually be phased out once all of the
     // InstanceInterfaceConfigs stored contain the prefix.
-    let default_prefix = IpNetwork::new(*address, 32).map_err(|e| CarbideError::Internal {
-        message: format!("failed to build default interface_prefix for {address}/32: {e}"),
-    })?;
+    let interface_prefix =
+        ds.v4_interface_prefix(iface, address)?
+            .ok_or_else(|| CarbideError::Internal {
+                message: format!(
+                    "No IPv4 prefix is available for instance {instance_id} on segment {}",
+                    segment.id,
+                ),
+            })?;
 
-    let interface_prefix = iface
-        .interface_prefixes
-        .get(&v4_prefix.id)
-        .unwrap_or(&default_prefix);
+    let v6_address = ds.v6_address(iface);
+    let v6_interface_prefix = ds.v6_interface_prefix(iface);
 
-    let vpc_prefixes: Vec<String> = match segment.vpc_id {
+    let vpc_prefixes: Vec<String> = match segment.config.vpc_id {
         Some(vpc_id) => {
             let vpc_prefixes = db::vpc_prefix::find_by_vpc(txn, vpc_id)
                 .await?
@@ -305,13 +439,16 @@ pub async fn tenant_network(
                 .map(|segment_prefix| segment_prefix.prefix.to_string());
             vpc_prefixes.chain(vpc_segment_prefixes).collect()
         }
-        None => vec![v4_prefix.prefix.to_string()],
+        None => ds
+            .v4()
+            .map(|p| vec![p.prefix.to_string()])
+            .unwrap_or_default(),
     };
 
     let mut vpc_peer_vnis = vec![];
     let mut vpc_peer_prefixes = vec![];
     if let Some(policy) = vpc_peering_policy_on_existing
-        && let Some(vpc_id) = segment.vpc_id
+        && let Some(vpc_id) = segment.config.vpc_id
     {
         match policy {
             VpcPeeringPolicy::Exclusive => {
@@ -350,8 +487,12 @@ pub async fn tenant_network(
             VpcPeeringPolicy::None => {}
         }
     }
+    // Keep API responses deterministic so downstream config rendering
+    // does not flap due to ordering jitter in peering query results.
+    vpc_peer_vnis.sort_unstable();
+    vpc_peer_prefixes.sort_unstable();
 
-    let vpc = match segment.vpc_id {
+    let vpc = match segment.config.vpc_id {
         Some(vpc_id) => {
             let mut vpcs =
                 db::vpc::find_by(&mut *txn, ObjectColumnFilter::One(vpc::IdColumn, &vpc_id))
@@ -370,16 +511,7 @@ pub async fn tenant_network(
         .unwrap_or_default() as u32;
 
     let rpc_ft: rpc::InterfaceFunctionType = iface.function_id.function_type().into();
-    let svi_ip = get_svi_ip(
-        &v4_prefix.svi_ip,
-        network_virtualization_type,
-        is_l2_segment,
-        v4_prefix.prefix.prefix(),
-    )
-    .map_err(|e| CarbideError::Internal {
-        message: format!("failed to configure FlatInterfaceConfig.svi_ip: {e}"),
-    })?
-    .map(|ip| ip.to_string());
+    let (svi_ip, svi_ip_v6) = ds.svi_ips(network_virtualization_type, is_l2_segment)?;
 
     let network_security_group_details = match (
         suppress_tenant_security_groups,
@@ -434,14 +566,17 @@ pub async fn tenant_network(
             InterfaceFunctionId::Physical {} => None,
             InterfaceFunctionId::Virtual { id } => Some(id.into()),
         },
-        vlan_id: segment.vlan_id.unwrap_or_default() as u32,
-        vni: segment.vni.unwrap_or_default() as u32,
+        vlan_id: segment.status.vlan_id.unwrap_or_default() as u32,
+        vni: segment.status.vni.unwrap_or_default() as u32,
         vpc_vni,
-        gateway: v4_prefix.gateway_cidr().unwrap_or_default(),
+        gateway: ds
+            .v4()
+            .map(|p| p.gateway_cidr().unwrap_or_default())
+            .unwrap_or_default(),
         ip: address.to_string(),
         interface_prefix: interface_prefix.to_string(),
         vpc_prefixes,
-        prefix: v4_prefix.prefix.to_string(),
+        prefix: ds.v4().map(|p| p.prefix.to_string()).unwrap_or_default(),
         // FIXME: Right now we are sending instance IP as hostname. This should be replaced by
         // user's provided fqdn later.
         fqdn,
@@ -477,7 +612,14 @@ pub async fn tenant_network(
                 ),
             })?,
         internal_uuid: Some(iface.internal_uuid.into()),
-        mtu: u32::try_from(segment.mtu).ok(),
+        mtu: u32::try_from(segment.config.mtu).ok(),
+        ipv6_interface_config: v6_address.map(|a| rpc::FlatInterfaceIpv6Config {
+            ip: a.to_string(),
+            interface_prefix: v6_interface_prefix
+                .map(|p| p.to_string())
+                .unwrap_or_default(),
+            svi_ip: svi_ip_v6,
+        }),
     })
 }
 

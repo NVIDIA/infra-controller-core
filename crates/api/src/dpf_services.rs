@@ -17,194 +17,568 @@
 
 //! Carbide-specific DPU service definitions for DPUServiceTemplate / DPUServiceConfiguration.
 
+use std::collections::BTreeMap;
+use std::fmt::Write;
+
+use carbide_dpf::sdk::build_dpu_interfaces_vec;
+use carbide_dpf::types::{
+    DHCP_SERVER_SERVICE_NAME, DOCA_HBN_SERVICE_NAME, DPU_AGENT_SERVICE_NAME, FMDS_SERVICE_NAME,
+    OTEL_COLLECTOR_SERVICE_NAME,
+};
 use carbide_dpf::{
-    ConfigPortsServiceType, ServiceChainSwitch, ServiceConfigPort, ServiceConfigPortProtocol,
-    ServiceDefinition, ServiceInterface,
+    ConfigPortsServiceType, ServiceConfigPort, ServiceConfigPortProtocol, ServiceDefinition,
+    ServiceInterface, ServiceNAD, ServiceNADResourceType,
 };
 
-/// HBN network name used by service interfaces and service chains.
-const HBN_NETWORK: &str = "mybrhbn";
+use crate::cfg::file::{DEFAULT_DPF_IMAGE_PULL_SECRET, DpfServiceConfig};
 
-/// HBN service name used in DPUServiceTemplate/DPUServiceConfiguration.
-const HBN_SERVICE_NAME: &str = "doca-hbn";
+/// Default DOCA helm registry (DPUServiceTemplate source.repoURL).
+pub const DEFAULT_DOCA_HELM_REGISTRY: &str = "https://helm.ngc.nvidia.com/nvidia/doca";
 
-/// Extended registry configuration for Carbide DPU services.
-#[derive(Debug, Clone)]
-pub struct CarbideServiceRegistryConfig {
-    /// Helm chart repository URL for DOCA services (HBN, DTS).
-    pub doca_helm_registry: String,
-    /// Helm chart repository URL for Carbide services.
-    pub carbide_helm_registry: String,
-    /// Container image registry prefix for Carbide images.
-    pub carbide_image_registry: String,
+pub const DEFAULT_CARBIDE_HELM_REGISTRY: &str =
+    "https://helm.ngc.nvidia.com/0837451325059433/carbide-dev";
+
+/// Default DOCA container image registry prefix.
+pub const DEFAULT_DOCA_IMAGE_REGISTRY: &str = "nvcr.io/nvidia/doca";
+
+/// Default Carbide container image registry prefix.
+pub const DEFAULT_CARBIDE_IMAGE_REGISTRY: &str = "nvcr.io/0837451325059433/carbide-dev";
+
+/// HBN service Definitions
+pub const DOCA_HBN_SERVICE_HELM_NAME: &str = "doca-hbn";
+pub const DOCA_HBN_SERVICE_HELM_VERSION: &str = "1.0.5";
+pub const DOCA_HBN_SERVICE_IMAGE_NAME: &str = "doca_hbn";
+pub const DOCA_HBN_SERVICE_IMAGE_TAG: &str = "3.2.1-doca3.2.1";
+pub const DOCA_HBN_SERVICE_NETWORK: &str = "mybrhbn";
+
+/// DHCP Service Definitions
+pub const DHCP_SERVER_SERVICE_HELM_NAME: &str = "nico-dhcp-server";
+pub const DHCP_SERVER_SERVICE_NAD_NAME: &str = "mybrsfc-dhcp";
+pub const DHCP_SERVER_SERVICE_MTU: i64 = 1500;
+pub const DHCP_SERVER_SERVICE_IMAGE_NAME: &str = "forge-dhcp-server";
+
+/// DTS service definitions
+pub const DTS_SERVICE_NAME: &str = "dts";
+pub const DTS_SERVICE_HELM_NAME: &str = "doca-telemetry";
+pub const DTS_SERVICE_HELM_VERSION: &str = "1.22.1";
+
+// DPU Agent Service Definitions
+pub const DPU_AGENT_SERVICE_HELM_NAME: &str = "nico-dpu-agent";
+pub const DPU_AGENT_SERVICE_IMAGE_NAME: &str = "forge-dpu-agent";
+
+/// FMDS Agent Service Definitions
+pub const FMDS_SERVICE_HELM_NAME: &str = "nico-fmds";
+pub const FMDS_SERVICE_IMAGE_NAME: &str = "carbide-fmds";
+pub const FMDS_SERVICE_NAD_NAME: &str = "mybrsfc-fmds";
+pub const FMDS_SERVICE_MTU: i64 = 1500;
+
+/// OTel Collector Service Definitions
+pub const OTEL_COLLECTOR_SERVICE_HELM_NAME: &str = "nico-otelcol";
+pub const OTEL_COLLECTOR_SERVICE_IMAGE_NAME: &str = "otelcol-contrib";
+
+/// Compile-time helm version (set by CI via VERSION env var). Empty on PR/fork builds.
+pub(crate) const COMPILE_TIME_HELM_VERSION: &str = match option_env!("CARBIDE_BUILD_HELM_VERSION") {
+    Some(v) => v,
+    None => "",
+};
+
+/// Compile-time image tag (set by CI via VERSION env var). Empty on PR/fork builds.
+pub(crate) const COMPILE_TIME_IMAGE_TAG: &str = match option_env!("CARBIDE_BUILD_GIT_TAG") {
+    Some(v) => v,
+    None => "",
+};
+
+fn doca_hbn_service_interfaces() -> Vec<ServiceInterface> {
+    dpu_service_interfaces(DOCA_HBN_SERVICE_NAME, DOCA_HBN_SERVICE_NETWORK)
+}
+fn dhcp_server_service_interfaces() -> Vec<ServiceInterface> {
+    dpu_service_interfaces(DHCP_SERVER_SERVICE_NAME, DHCP_SERVER_SERVICE_NAD_NAME)
+}
+fn fmds_service_interfaces() -> Vec<ServiceInterface> {
+    dpu_service_interfaces(FMDS_SERVICE_NAME, FMDS_SERVICE_NAD_NAME)
 }
 
-impl Default for CarbideServiceRegistryConfig {
-    fn default() -> Self {
-        Self {
-            doca_helm_registry: carbide_dpf::services::DEFAULT_DOCA_HELM_REGISTRY.to_string(),
-            carbide_helm_registry: "https://helm.ngc.nvidia.com/nvidia/carbide".to_string(),
-            carbide_image_registry: "nvcr.io/nvidia/carbide".to_string(),
-        }
+fn dpu_service_interfaces(service_name: &str, network: &str) -> Vec<ServiceInterface> {
+    build_dpu_interfaces_vec()
+        .into_iter()
+        .filter_map(|iface| {
+            iface.chained_svc_if.and_then(|chains| {
+                chains
+                    .into_iter()
+                    .find_map(|(chained_service_name, interface_name)| {
+                        (chained_service_name == service_name).then(|| ServiceInterface {
+                            name: interface_name,
+                            network: network.to_string(),
+                        })
+                    })
+            })
+        })
+        .collect()
+}
+
+fn doca_hbn_startup_yaml(interfaces: &[ServiceInterface]) -> String {
+    let mut startup_yaml = String::from(concat!(
+        "- header:\n",
+        "    model: BLUEFIELD\n",
+        "    nvue-api-version: nvue_v1\n",
+        "    rev-id: 1.0\n",
+        "    version: HBN 2.4.0\n",
+        "- set:\n",
+        "    system:\n",
+        "      api:\n",
+        "        listening-address:\n",
+        "          0.0.0.0: {}\n",
+        "    interface:\n",
+    ));
+
+    for interface in interfaces {
+        let _ = writeln!(startup_yaml, "      {}:", interface.name);
+        startup_yaml.push_str("        type: swp\n");
+    }
+
+    startup_yaml
+}
+
+pub(crate) fn default_dts_service() -> DpfServiceConfig {
+    DpfServiceConfig {
+        name: DTS_SERVICE_NAME.to_string(),
+        helm_repo_url: DEFAULT_DOCA_HELM_REGISTRY.to_string(),
+        helm_chart: DTS_SERVICE_HELM_NAME.to_string(),
+        helm_version: DTS_SERVICE_HELM_VERSION.to_string(),
+        docker_repo_url: String::new(),
+        docker_image_tag: String::new(),
+        docker_image_pull_secret: DEFAULT_DPF_IMAGE_PULL_SECRET.to_string(),
     }
 }
 
-// TODO: wire into setup.rs when carbide services are deployed to DPUs
-#[allow(dead_code)]
-/// HBN (Host-Based Networking) service definition.
-///
-/// Configures HBN as a DPF service with interfaces for physical ports (p0, p1, pf0hpf)
-/// and a carbide service interface, along with service chain switches that connect
-/// physical ports to HBN interfaces.
-pub fn hbn_service(reg: &CarbideServiceRegistryConfig) -> ServiceDefinition {
+pub(crate) fn default_doca_hbn_service() -> DpfServiceConfig {
+    DpfServiceConfig {
+        name: DOCA_HBN_SERVICE_NAME.to_string(),
+        helm_repo_url: DEFAULT_DOCA_HELM_REGISTRY.to_string(),
+        helm_chart: DOCA_HBN_SERVICE_HELM_NAME.to_string(),
+        helm_version: DOCA_HBN_SERVICE_HELM_VERSION.to_string(),
+        docker_repo_url: format!("{DEFAULT_DOCA_IMAGE_REGISTRY}/{DOCA_HBN_SERVICE_IMAGE_NAME}"),
+        docker_image_tag: DOCA_HBN_SERVICE_IMAGE_TAG.to_string(),
+        docker_image_pull_secret: DEFAULT_DPF_IMAGE_PULL_SECRET.to_string(),
+    }
+}
+
+pub(crate) fn default_dpu_agent_service() -> DpfServiceConfig {
+    DpfServiceConfig {
+        name: DPU_AGENT_SERVICE_NAME.to_string(),
+        helm_repo_url: DEFAULT_CARBIDE_HELM_REGISTRY.to_string(),
+        helm_chart: DPU_AGENT_SERVICE_HELM_NAME.to_string(),
+        helm_version: COMPILE_TIME_HELM_VERSION.to_string(),
+        docker_repo_url: format!("{DEFAULT_CARBIDE_IMAGE_REGISTRY}/{DPU_AGENT_SERVICE_IMAGE_NAME}"),
+        docker_image_tag: COMPILE_TIME_IMAGE_TAG.to_string(),
+        docker_image_pull_secret: DEFAULT_DPF_IMAGE_PULL_SECRET.to_string(),
+    }
+}
+
+pub(crate) fn default_dhcp_server_service() -> DpfServiceConfig {
+    DpfServiceConfig {
+        name: DHCP_SERVER_SERVICE_NAME.to_string(),
+        helm_repo_url: DEFAULT_CARBIDE_HELM_REGISTRY.to_string(),
+        helm_chart: DHCP_SERVER_SERVICE_HELM_NAME.to_string(),
+        helm_version: COMPILE_TIME_HELM_VERSION.to_string(),
+        docker_repo_url: format!(
+            "{DEFAULT_CARBIDE_IMAGE_REGISTRY}/{DHCP_SERVER_SERVICE_IMAGE_NAME}"
+        ),
+        docker_image_tag: COMPILE_TIME_IMAGE_TAG.to_string(),
+        docker_image_pull_secret: DEFAULT_DPF_IMAGE_PULL_SECRET.to_string(),
+    }
+}
+
+pub(crate) fn default_fmds_service() -> DpfServiceConfig {
+    DpfServiceConfig {
+        name: FMDS_SERVICE_NAME.to_string(),
+        helm_repo_url: DEFAULT_CARBIDE_HELM_REGISTRY.to_string(),
+        helm_chart: FMDS_SERVICE_HELM_NAME.to_string(),
+        helm_version: COMPILE_TIME_HELM_VERSION.to_string(),
+        docker_repo_url: format!("{DEFAULT_CARBIDE_IMAGE_REGISTRY}/{FMDS_SERVICE_IMAGE_NAME}"),
+        docker_image_tag: COMPILE_TIME_IMAGE_TAG.to_string(),
+        docker_image_pull_secret: DEFAULT_DPF_IMAGE_PULL_SECRET.to_string(),
+    }
+}
+
+pub(crate) fn default_otelcol_service() -> DpfServiceConfig {
+    DpfServiceConfig {
+        name: OTEL_COLLECTOR_SERVICE_NAME.to_string(),
+        helm_repo_url: DEFAULT_CARBIDE_HELM_REGISTRY.to_string(),
+        helm_chart: OTEL_COLLECTOR_SERVICE_HELM_NAME.to_string(),
+        helm_version: COMPILE_TIME_HELM_VERSION.to_string(),
+        docker_repo_url: format!(
+            "{DEFAULT_CARBIDE_IMAGE_REGISTRY}/{OTEL_COLLECTOR_SERVICE_IMAGE_NAME}"
+        ),
+        docker_image_tag: COMPILE_TIME_IMAGE_TAG.to_string(),
+        docker_image_pull_secret: DEFAULT_DPF_IMAGE_PULL_SECRET.to_string(),
+    }
+}
+
+/// DOCA HBN service definition.
+pub fn doca_hbn_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
+    let interfaces = doca_hbn_service_interfaces();
     ServiceDefinition {
-        interfaces: vec![
-            ServiceInterface {
-                name: "p0_if".to_string(),
-                network: HBN_NETWORK.to_string(),
+        helm_values: Some(serde_json::json!({
+            "image": {
+                "repository": cfg.docker_repo_url,
+                "tag": cfg.docker_image_tag,
             },
-            ServiceInterface {
-                name: "p1_if".to_string(),
-                network: HBN_NETWORK.to_string(),
+            "resources": {
+                "memory": "6Gi",
+                "nvidia.com/bf_sf": interfaces.len(),
             },
-            ServiceInterface {
-                name: "pf0hpf_if".to_string(),
-                network: HBN_NETWORK.to_string(),
-            },
-            ServiceInterface {
-                name: "carbide_if".to_string(),
-                network: HBN_NETWORK.to_string(),
-            },
-        ],
-        config_values: Some(serde_json::json!({
-            "service": {
-                "nodePort": 30765,
-                "type": "NodePort",
-                "perDPUValuesYAML": "- hostnamePattern: \"*\"\n",
-                "startupYAMLJ2": concat!(
-                    "- header:\n",
-                    "    model: bluefield\n",
-                    "    nvue-api-version: nvue_v1\n",
-                    "    rev-id: 1.0\n",
-                    "    version: HBN 3.1.0\n",
-                    "- set:\n",
-                    "    system:\n",
-                    "      api:\n",
-                    "        listening-address:\n",
-                    "          0.0.0.0: {}\n",
-                )
+            "configuration": {
+                "user": {
+                    "create": true,
+                    "username": "carbide",
+                    "password": {
+                        "secretName": "hbn-user-password",
+                        "secretKey": "password",
+                    },
+                },
             }
         })),
-        config_ports: Some(vec![ServiceConfigPort {
-            name: "nvueport".to_string(),
-            port: 8765,
-            protocol: ServiceConfigPortProtocol::Tcp,
-            node_port: Some(30765),
-        }]),
-        config_ports_service_type: Some(ConfigPortsServiceType::NodePort),
-        service_chain_switches: vec![
-            ServiceChainSwitch {
-                physical_interface: "p0".to_string(),
-                service_name: HBN_SERVICE_NAME.to_string(),
-                service_interface: "p0_if".to_string(),
-            },
-            ServiceChainSwitch {
-                physical_interface: "p1".to_string(),
-                service_name: HBN_SERVICE_NAME.to_string(),
-                service_interface: "p1_if".to_string(),
-            },
-            ServiceChainSwitch {
-                physical_interface: "pf0hpf".to_string(),
-                service_name: HBN_SERVICE_NAME.to_string(),
-                service_interface: "pf0hpf_if".to_string(),
-            },
-        ],
-        service_daemon_set_annotations: Some(std::collections::BTreeMap::from([(
-            "k8s.v1.cni.cncf.io/networks".to_string(),
-            r#"[{"name":"iprequest","interface":"ip_lo","cni-args":{"poolNames":["loopback"],"poolType":"cidrpool"}},{"name":"iprequest","interface":"ip_pf0hpf","cni-args":{"poolNames":["pool1"],"poolType":"cidrpool","allocateDefaultGateway":true}},{"name":"iprequest","interface":"ip_pf1hpf","cni-args":{"poolNames":["pool2"],"poolType":"cidrpool","allocateDefaultGateway":true}}]"#
-                .to_string(),
-        )])),
+
+        config_values: Some(serde_json::json!({
+            "configuration": {
+                "startupYAMLJ2": doca_hbn_startup_yaml(&interfaces)
+            }
+        })),
+
+        service_daemon_set_annotations: Some(BTreeMap::new()),
+
+        interfaces,
+
         ..ServiceDefinition::new(
-            HBN_SERVICE_NAME,
-            &reg.doca_helm_registry,
-            "doca-hbn",
-            "3.1.0",
+            &cfg.name,
+            &cfg.helm_repo_url,
+            &cfg.helm_chart,
+            &cfg.helm_version,
         )
     }
 }
 
-/// Build a Carbide service definition with standard image helm values.
-fn carbide_service(
-    reg: &CarbideServiceRegistryConfig,
-    name: &str,
-    image_name: &str,
-    version: &str,
-) -> ServiceDefinition {
+/// DTS (DOCA Telemetry Service) service definition.
+pub fn dts_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
     ServiceDefinition {
         helm_values: Some(serde_json::json!({
-            "image": {
-                "repository": format!("{}/{}", reg.carbide_image_registry, image_name),
-                "tag": version
-            }
+            "exposedPorts": { "ports": { "httpserverport": true } }
         })),
-        ..ServiceDefinition::new(name, &reg.carbide_helm_registry, name, version)
+        config_ports: Some(vec![ServiceConfigPort {
+            name: "httpserverport".to_string(),
+            port: 9100,
+            protocol: ServiceConfigPortProtocol::Tcp,
+            node_port: None,
+        }]),
+        config_ports_service_type: Some(ConfigPortsServiceType::None),
+        ..ServiceDefinition::new(
+            &cfg.name,
+            &cfg.helm_repo_url,
+            &cfg.helm_chart,
+            &cfg.helm_version,
+        )
     }
 }
 
-// TODO: wire into setup.rs when carbide services are deployed to DPUs
-#[allow(dead_code)]
-/// OpenTelemetry Collector service definition.
-pub fn otelcol_service(reg: &CarbideServiceRegistryConfig) -> ServiceDefinition {
-    let mut svc = carbide_service(reg, "carbide-otelcol", "otelcol-contrib", "0.1.0");
-    svc.config_ports = Some(vec![ServiceConfigPort {
-        name: "prometheus".to_string(),
-        port: 9999,
-        protocol: ServiceConfigPortProtocol::Tcp,
-        node_port: None,
-    }]);
-    svc.config_ports_service_type = Some(ConfigPortsServiceType::None);
-    svc
-}
-
-// TODO: wire into setup.rs when carbide services are deployed to DPUs
-#[allow(dead_code)]
 /// Forge DPU Agent service definition.
-pub fn dpu_agent_service(reg: &CarbideServiceRegistryConfig) -> ServiceDefinition {
-    let mut svc = carbide_service(reg, "carbide-dpu-agent", "forge-dpu-agent", "0.1.0");
-    svc.interfaces = vec![ServiceInterface {
-        name: "carbide0".to_string(),
-        network: HBN_NETWORK.to_string(),
-    }];
-    svc.config_ports = Some(vec![ServiceConfigPort {
-        name: "metrics".to_string(),
-        port: 8888,
-        protocol: ServiceConfigPortProtocol::Tcp,
-        node_port: None,
-    }]);
-    svc.config_ports_service_type = Some(ConfigPortsServiceType::None);
-    svc.service_chain_switches = vec![ServiceChainSwitch {
-        physical_interface: "carbide0".to_string(),
-        service_name: HBN_SERVICE_NAME.to_string(),
-        service_interface: "carbide_if".to_string(),
-    }];
-    svc
+pub fn dpu_agent_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
+    ServiceDefinition {
+        helm_values: Some(serde_json::json!({
+            "image": {
+                "repository": cfg.docker_repo_url,
+                "tag": cfg.docker_image_tag,
+            },
+            "hbn": {
+                "nvue_https_address": "nvue",
+                "nvue_credentials_secret_name": "hbn-user-password",
+                "nvue_password_key": "password",
+            },
+            "imagePullSecrets": [
+                {
+                    "name": cfg.docker_image_pull_secret
+                }
+            ]
+        })),
+
+        service_daemon_set_annotations: Some(BTreeMap::new()),
+
+        config_values: Some(serde_json::json!({
+            "dhcp_server": {
+                "service_name": "{{ (index .Services \"carbide-dhcp-server\").Name }}",
+                "interface_prepend": "d_"
+            },
+            "fmds": {
+                "service_name": "{{ (index .Services \"carbide-fmds\").Name }}"
+            },
+            "hbn": {
+                "nvue_https_address": "{{ (index .Services \"doca-hbn\").Name }}"
+            }
+        })),
+
+        ..ServiceDefinition::new(
+            &cfg.name,
+            &cfg.helm_repo_url,
+            &cfg.helm_chart,
+            &cfg.helm_version,
+        )
+    }
 }
 
-// TODO: wire into setup.rs when carbide services are deployed to DPUs
-#[allow(dead_code)]
 /// Forge DHCP Server service definition.
-pub fn dhcp_server_service(reg: &CarbideServiceRegistryConfig) -> ServiceDefinition {
-    carbide_service(reg, "carbide-dhcp-server", "forge-dhcp-server", "0.1.0")
+pub fn dhcp_server_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
+    ServiceDefinition {
+        helm_values: Some(serde_json::json!({
+            "image": {
+                "repository": cfg.docker_repo_url,
+                "tag": cfg.docker_image_tag,
+            },
+            "imagePullSecrets": [
+                {
+                    "name": cfg.docker_image_pull_secret
+                }
+            ]
+        })),
+
+        interfaces: dhcp_server_service_interfaces(),
+
+        service_daemon_set_annotations: Some(BTreeMap::new()),
+
+        service_nad: Some(ServiceNAD {
+            name: DHCP_SERVER_SERVICE_NAD_NAME.to_string(),
+            bridge: Some("br-sfc".to_string()),
+            resource_type: ServiceNADResourceType::Sf,
+            ipam: Some(false),
+            mtu: Some(DHCP_SERVER_SERVICE_MTU),
+        }),
+
+        ..ServiceDefinition::new(
+            &cfg.name,
+            &cfg.helm_repo_url,
+            &cfg.helm_chart,
+            &cfg.helm_version,
+        )
+    }
 }
 
-// TODO: wire into setup.rs when carbide services are deployed to DPUs
-#[allow(dead_code)]
-/// Forge DPU OTel Agent service definition.
-pub fn dpu_otel_agent_service(reg: &CarbideServiceRegistryConfig) -> ServiceDefinition {
-    carbide_service(
-        reg,
-        "carbide-dpu-otel-agent",
-        "forge-dpu-otel-agent",
-        "0.1.0",
-    )
+/// Forge FMDS service definition.
+pub fn fmds_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
+    ServiceDefinition {
+        helm_values: Some(serde_json::json!({
+            "image": {
+                "repository": cfg.docker_repo_url,
+                "tag": cfg.docker_image_tag,
+            },
+            "imagePullSecrets": [
+                {
+                    "name": cfg.docker_image_pull_secret
+                }
+            ]
+        })),
+
+        interfaces: fmds_service_interfaces(),
+
+        service_daemon_set_annotations: Some(BTreeMap::new()),
+
+        service_nad: Some(ServiceNAD {
+            name: FMDS_SERVICE_NAD_NAME.to_string(),
+            bridge: Some("br-sfc".to_string()),
+            resource_type: ServiceNADResourceType::Sf,
+            ipam: Some(false),
+            mtu: Some(FMDS_SERVICE_MTU),
+        }),
+
+        ..ServiceDefinition::new(
+            &cfg.name,
+            &cfg.helm_repo_url,
+            &cfg.helm_chart,
+            &cfg.helm_version,
+        )
+    }
+}
+
+/// OTel service definition.
+pub fn otelcol_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
+    ServiceDefinition {
+        helm_values: Some(serde_json::json!({
+            "image": {
+                "repository": cfg.docker_repo_url,
+                "tag": cfg.docker_image_tag,
+            },
+            "imagePullSecrets": [
+                {
+                    "name": cfg.docker_image_pull_secret
+                }
+            ]
+        })),
+        service_daemon_set_annotations: Some(BTreeMap::new()),
+        config_values: Some(serde_json::json!({
+            "carbide_dpu_agent": "{{ (index .Services \"carbide-dpu-agent\").Name }}",
+            "carbide_fmds": "{{ (index .Services \"carbide-fmds\").Name }}"
+        })),
+
+        ..ServiceDefinition::new(
+            &cfg.name,
+            &cfg.helm_repo_url,
+            &cfg.helm_chart,
+            &cfg.helm_version,
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_dpf::build_service_interface;
+    use carbide_dpf::sdk::build_dpu_interfaces_vec;
+    use carbide_dpf::types::DpuServiceInterfaceTemplateType;
+
+    use super::*;
+
+    const TEST_NS: &str = "dpf-operator-system";
+
+    // ---- dpu_service_interfaces ----
+
+    #[test]
+    fn test_dpu_service_interfaces_hbn_uses_correct_network() {
+        let ifaces = dpu_service_interfaces(DOCA_HBN_SERVICE_NAME, DOCA_HBN_SERVICE_NETWORK);
+        assert!(!ifaces.is_empty(), "HBN should have at least one interface");
+        for iface in &ifaces {
+            assert_eq!(
+                iface.network, DOCA_HBN_SERVICE_NETWORK,
+                "HBN interface '{}' has wrong network",
+                iface.name
+            );
+        }
+    }
+
+    #[test]
+    fn test_dpu_service_interfaces_dhcp_uses_correct_network() {
+        let ifaces = dpu_service_interfaces(DHCP_SERVER_SERVICE_NAME, DHCP_SERVER_SERVICE_NAD_NAME);
+        assert!(
+            !ifaces.is_empty(),
+            "DHCP server should have at least one interface"
+        );
+        for iface in &ifaces {
+            assert_eq!(
+                iface.network, DHCP_SERVER_SERVICE_NAD_NAME,
+                "DHCP interface '{}' has wrong network",
+                iface.name
+            );
+        }
+    }
+
+    #[test]
+    fn test_dpu_service_interfaces_derived_from_build_dpu_interfaces_vec() {
+        // Every interface returned for HBN must originate from build_dpu_interfaces_vec.
+        let all_ifaces = build_dpu_interfaces_vec();
+        let hbn_ifaces = dpu_service_interfaces(DOCA_HBN_SERVICE_NAME, DOCA_HBN_SERVICE_NETWORK);
+        let dhcp_ifaces =
+            dpu_service_interfaces(DHCP_SERVER_SERVICE_NAME, DHCP_SERVER_SERVICE_NAD_NAME);
+
+        let all_chained_names: Vec<String> = all_ifaces
+            .iter()
+            .flat_map(|i| i.chained_svc_if.iter().flatten())
+            .map(|(_, ifname)| ifname.clone())
+            .collect();
+
+        for iface in hbn_ifaces.iter().chain(dhcp_ifaces.iter()) {
+            assert!(
+                all_chained_names.contains(&iface.name),
+                "Interface '{}' was not derived from build_dpu_interfaces_vec",
+                iface.name
+            );
+        }
+    }
+
+    #[test]
+    fn test_build_service_interface_physical() {
+        let interfaces = build_dpu_interfaces_vec();
+        let p0 = interfaces
+            .iter()
+            .find(|i| i.name == "p0")
+            .expect("p0 must exist");
+        assert!(matches!(
+            p0.iface_type,
+            DpuServiceInterfaceTemplateType::Physical
+        ));
+        let cr = build_service_interface(p0, TEST_NS);
+        assert_eq!(cr.metadata.name.as_deref(), Some("p0"));
+        assert_eq!(cr.metadata.namespace.as_deref(), Some(TEST_NS));
+        let template_spec = &cr.spec.template.spec.template.spec;
+        assert!(
+            template_spec.physical.is_some(),
+            "physical spec must be set for Physical type"
+        );
+        assert!(template_spec.pf.is_none());
+        assert!(template_spec.vf.is_none());
+    }
+
+    #[test]
+    fn test_build_service_interface_pf() {
+        let interfaces = build_dpu_interfaces_vec();
+        let pf0hpf = interfaces
+            .iter()
+            .find(|i| i.name == "pf0hpf")
+            .expect("pf0hpf must exist");
+        assert!(matches!(
+            pf0hpf.iface_type,
+            DpuServiceInterfaceTemplateType::Pf
+        ));
+        let cr = build_service_interface(pf0hpf, TEST_NS);
+        let template_spec = &cr.spec.template.spec.template.spec;
+        assert!(
+            template_spec.pf.is_some(),
+            "pf spec must be set for Pf type"
+        );
+        assert!(template_spec.physical.is_none());
+        assert!(template_spec.vf.is_none());
+    }
+
+    #[test]
+    fn test_build_service_interface_vf() {
+        let interfaces = build_dpu_interfaces_vec();
+        let pf0vf0 = interfaces
+            .iter()
+            .find(|i| i.name == "pf0vf0")
+            .expect("pf0vf0 must exist");
+        assert!(matches!(
+            pf0vf0.iface_type,
+            DpuServiceInterfaceTemplateType::Vf
+        ));
+        let cr = build_service_interface(pf0vf0, TEST_NS);
+        let template_spec = &cr.spec.template.spec.template.spec;
+        assert!(
+            template_spec.vf.is_some(),
+            "vf spec must be set for Vf type"
+        );
+        let vf = template_spec.vf.as_ref().unwrap();
+        assert_eq!(vf.pf_id, 0);
+        assert_eq!(vf.vf_id, 0);
+        assert_eq!(vf.parent_interface_ref.as_deref(), Some("p0"));
+        assert!(template_spec.physical.is_none());
+        assert!(template_spec.pf.is_none());
+    }
+
+    #[test]
+    fn test_build_service_interface_label_matches_name() {
+        let interfaces = build_dpu_interfaces_vec();
+        for iface in &interfaces {
+            let cr = build_service_interface(iface, TEST_NS);
+            let labels = cr
+                .spec
+                .template
+                .spec
+                .template
+                .metadata
+                .as_ref()
+                .and_then(|m| m.labels.as_ref())
+                .expect("labels must be present");
+            assert_eq!(
+                labels.get("interface").map(String::as_str),
+                Some(iface.name.as_str()),
+                "'interface' label must match iface name for '{}'",
+                iface.name
+            );
+        }
+    }
 }

@@ -1,10 +1,27 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 use std::net::IpAddr;
 
 use async_trait::async_trait;
 use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
-use health_report::{HealthReport, OverrideMode};
+use health_report::{HealthReport, HealthReportApplyMode};
 use model::machine::{MachineLastRebootRequested, MachineLastRebootRequestedMode};
 use sqlx::PgTransaction;
 
@@ -65,8 +82,8 @@ pub enum MachineWriteOp {
         verified: Option<bool>,
         attempts: i32,
     },
-    UpdateFirmwareVersionByBmcAddress {
-        bmc_address: IpAddr,
+    UpdateFirmwareVersionByMachineId {
+        machine_id: MachineId,
         bmc_version: String,
         bios_version: String,
     },
@@ -78,9 +95,9 @@ pub enum MachineWriteOp {
         machine_id: MachineId,
         requested: bool,
     },
-    InsertHealthReportOverride {
+    InsertMachineHealthReport {
         machine_id: MachineId,
-        mode: OverrideMode,
+        mode: HealthReportApplyMode,
         health_report: HealthReport,
     },
     ReExploreIfVersionMatches {
@@ -112,7 +129,15 @@ impl WriteOp for MachineWriteOp {
             PersistMachineHealthHistory {
                 machine_id,
                 health_report,
-            } => db::machine_health_history::persist(txn, &machine_id, &health_report).await?,
+            } => {
+                db::health_history::persist(
+                    txn,
+                    db::health_history::HealthHistoryTableId::Machine,
+                    &machine_id,
+                    &health_report,
+                )
+                .await?
+            }
             ResetHostReprovisioningRequest {
                 machine_id,
                 clear_reset,
@@ -150,14 +175,14 @@ impl WriteOp for MachineWriteOp {
                 )
                 .await?
             }
-            UpdateFirmwareVersionByBmcAddress {
-                bmc_address,
+            UpdateFirmwareVersionByMachineId {
+                machine_id,
                 bmc_version,
                 bios_version,
             } => {
-                db::machine_topology::update_firmware_version_by_bmc_address(
+                db::machine_topology::update_firmware_version_by_machine_id(
                     txn,
-                    &bmc_address,
+                    &machine_id,
                     &bmc_version,
                     &bios_version,
                 )
@@ -170,19 +195,13 @@ impl WriteOp for MachineWriteOp {
                 machine_id,
                 requested,
             } => db::instance::set_custom_pxe_reboot_requested(&machine_id, requested, txn).await?,
-            InsertHealthReportOverride {
+            InsertMachineHealthReport {
                 machine_id,
                 mode,
                 health_report,
             } => {
-                db::machine::insert_health_report_override(
-                    txn,
-                    &machine_id,
-                    mode,
-                    &health_report,
-                    false,
-                )
-                .await?
+                db::machine::insert_health_report(txn, &machine_id, mode, &health_report, false)
+                    .await?
             }
             ReExploreIfVersionMatches { address, version } => {
                 db::explored_endpoints::re_explore_if_version_matches(address, version, txn)

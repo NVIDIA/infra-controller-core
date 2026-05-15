@@ -27,7 +27,7 @@ use hyper::http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
 
-use super::filters;
+use super::{Base, filters};
 use crate::api::Api;
 
 #[derive(Template)]
@@ -51,32 +51,40 @@ struct NetworkSegmentRowDisplay {
     version: String,
 }
 
-impl From<forgerpc::NetworkSegment> for NetworkSegmentRowDisplay {
-    fn from(segment: forgerpc::NetworkSegment) -> Self {
-        Self {
+impl TryFrom<forgerpc::NetworkSegment> for NetworkSegmentRowDisplay {
+    type Error = &'static str;
+
+    fn try_from(segment: forgerpc::NetworkSegment) -> Result<Self, Self::Error> {
+        let name = segment
+            .metadata
+            .as_ref()
+            .map(|m| m.name.clone())
+            .unwrap_or_default();
+
+        let config = segment.config.ok_or("network segment missing config")?;
+        let status = segment.status.unwrap_or_default();
+        let lifecycle = status.lifecycle.as_ref();
+
+        Ok(Self {
             id: segment.id.unwrap_or_default().to_string(),
-            name: segment.name,
-            vpc_id: segment.vpc_id.map(|id| id.to_string()).unwrap_or_default(),
+            name,
+            vpc_id: config.vpc_id.map(|id| id.to_string()).unwrap_or_default(),
             created: segment.created.unwrap_or_default().to_string(),
-            state: format!(
-                "{:?}",
-                forgerpc::TenantState::try_from(segment.state).unwrap_or_default()
-            ),
-            time_in_state_above_sla: segment
-                .state_sla
-                .as_ref()
+            state: lifecycle.map(|lc| lc.state.clone()).unwrap_or_default(),
+            time_in_state_above_sla: lifecycle
+                .and_then(|lc| lc.sla.as_ref())
                 .map(|sla| sla.time_in_state_above_sla)
                 .unwrap_or_default(),
             sub_domain: String::new(), // filled in later
-            mtu: segment.mtu.unwrap_or(-1),
-            prefixes: segment
+            mtu: config.mtu.unwrap_or(-1),
+            prefixes: config
                 .prefixes
                 .iter()
                 .map(|x| x.prefix.to_string())
                 .collect::<Vec<String>>()
                 .join(", "),
-            version: segment.version,
-        }
+            version: lifecycle.map(|lc| lc.version.clone()).unwrap_or_default(),
+        })
     }
 }
 
@@ -99,13 +107,25 @@ pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let mut tenant = Vec::new();
     for n in networks.into_iter() {
         let mut domain_name = String::new();
-        if let Some(domain_id) = n.subdomain_id.as_ref()
+        if let Some(config) = n.config.as_ref()
+            && let Some(domain_id) = config.subdomain_id.as_ref()
             && let Ok(name) = get_domain_name(state.clone(), domain_id).await
         {
             domain_name = name;
         };
-        let segment_type = n.segment_type;
-        let mut display: NetworkSegmentRowDisplay = n.into();
+        let segment_type = n
+            .config
+            .as_ref()
+            .map(|c| c.segment_type)
+            .unwrap_or_default();
+
+        let mut display: NetworkSegmentRowDisplay = match n.try_into() {
+            Ok(d) => d,
+            Err(err) => {
+                tracing::error!(err, "skipping malformed network segment");
+                continue;
+            }
+        };
         display.sub_domain = domain_name;
         match forgerpc::NetworkSegmentType::try_from(segment_type) {
             Ok(forgerpc::NetworkSegmentType::Admin) => admin.push(display),
@@ -168,11 +188,23 @@ async fn fetch_network_segments(
             .await?
             .into_inner();
 
-        segments.extend(next_vpcs.network_segments.into_iter());
+        segments.extend(next_vpcs.network_segments);
         offset += page_size;
     }
 
-    segments.sort_unstable_by(|ns1, ns2| ns1.name.cmp(&ns2.name));
+    segments.sort_unstable_by(|ns1, ns2| {
+        let n1 = ns1
+            .metadata
+            .as_ref()
+            .map(|m| m.name.as_str())
+            .unwrap_or_default();
+        let n2 = ns2
+            .metadata
+            .as_ref()
+            .map(|m| m.name.as_str())
+            .unwrap_or_default();
+        n1.cmp(n2)
+    });
     Ok(segments)
 }
 
@@ -205,10 +237,7 @@ struct NetworkSegmentDetail {
     created: String,
     updated: String,
     deleted: String,
-    state: String,
-    state_sla: String,
-    time_in_state_above_sla: bool,
-    state_reason: Option<rpc::forge::ControllerStateReason>,
+    lifecycle_detail: super::LifecycleDetail,
     domain_id: String,
     domain_name: String,
     segment_type: String,
@@ -229,69 +258,60 @@ struct NetworkSegmentHistory {
     version: String,
 }
 
-impl From<forgerpc::NetworkSegment> for NetworkSegmentDetail {
-    fn from(segment: forgerpc::NetworkSegment) -> Self {
+impl TryFrom<forgerpc::NetworkSegment> for NetworkSegmentDetail {
+    type Error = &'static str;
+
+    fn try_from(segment: forgerpc::NetworkSegment) -> Result<Self, Self::Error> {
+        let name = segment
+            .metadata
+            .as_ref()
+            .map(|m| m.name.clone())
+            .unwrap_or_default();
+
+        let config = segment.config.ok_or("network segment missing config")?;
+        let status = segment.status.unwrap_or_default();
+
         let mut prefixes = Vec::new();
-        for (i, p) in segment.prefixes.into_iter().enumerate() {
+        for (i, p) in config.prefixes.into_iter().enumerate() {
             prefixes.push(NetworkSegmentPrefix {
                 index: i,
                 id: p.id.unwrap_or_default().to_string(),
                 prefix: p.prefix,
-                gateway: p
-                    .gateway
-                    .clone()
-                    .unwrap_or_else(|| "Unknown".to_string())
-                    .to_string(),
+                gateway: p.gateway.unwrap_or_else(|| "Unknown".to_string()),
                 reserve_first: p.reserve_first,
             });
         }
-        let mut history = Vec::new();
-        for h in segment.history.into_iter() {
-            history.push(NetworkSegmentHistory {
-                state: h.state,
-                version: h.version,
+
+        let lifecycle_detail = status
+            .lifecycle
+            .map(super::LifecycleDetail::from)
+            .unwrap_or_else(|| {
+                super::LifecycleDetail::new(String::new(), String::new(), None, None)
             });
-        }
-        Self {
+
+        Ok(Self {
             id: segment.id.unwrap_or_default().to_string(),
-            name: segment.name,
-            version: segment.version,
-            vpc_id: segment.vpc_id.map(|id| id.to_string()).unwrap_or_default(),
+            name,
+            version: lifecycle_detail.version.clone(),
+            vpc_id: config.vpc_id.map(|id| id.to_string()).unwrap_or_default(),
             created: segment.created.unwrap_or_default().to_string(),
             updated: segment.updated.unwrap_or_default().to_string(),
             deleted: segment
                 .deleted
                 .map(|x| x.to_string())
                 .unwrap_or("Not Deleted".to_string()),
-            state: format!(
-                "{:?}",
-                forgerpc::TenantState::try_from(segment.state).unwrap_or_default()
-            ),
-            state_sla: segment
-                .state_sla
-                .as_ref()
-                .and_then(|sla| sla.sla)
-                .map(|sla| {
-                    config_version::format_duration(
-                        chrono::TimeDelta::try_from(sla).unwrap_or(chrono::TimeDelta::MAX),
-                    )
-                })
-                .unwrap_or_default(),
-            time_in_state_above_sla: segment
-                .state_sla
-                .as_ref()
-                .map(|sla| sla.time_in_state_above_sla)
-                .unwrap_or_default(),
-            state_reason: segment.state_reason,
-            domain_id: segment.subdomain_id.unwrap_or_default().to_string(),
+            lifecycle_detail,
+            domain_id: config.subdomain_id.unwrap_or_default().to_string(),
             domain_name: String::new(), // filled in later
             segment_type: format!(
                 "{:?}",
-                forgerpc::NetworkSegmentType::try_from(segment.segment_type).unwrap_or_default()
+                forgerpc::NetworkSegmentType::try_from(config.segment_type).unwrap_or_default()
             ),
             prefixes,
-            history,
-        }
+            // History is fetched separately via FindNetworkSegmentStateHistories
+            // and set on the template after conversion.
+            history: Vec::new(),
+        })
     }
 }
 
@@ -318,9 +338,10 @@ pub async fn detail(
 
     let request = tonic::Request::new(forgerpc::NetworkSegmentsByIdsRequest {
         network_segments_ids: vec![segment_id],
-        include_history: true,
+        include_history: false, // deprecated; fetched separately below
         include_num_free_ips: true,
     });
+
     let segment = match state
         .find_network_segments_by_ids(request)
         .await
@@ -355,12 +376,46 @@ pub async fn detail(
     }
 
     let mut domain_name = String::new();
-    if let Some(domain_id) = segment.subdomain_id.as_ref()
+    if let Some(domain_id) = segment
+        .config
+        .as_ref()
+        .and_then(|c| c.subdomain_id.as_ref())
         && let Ok(name) = get_domain_name(state.clone(), domain_id).await
     {
         domain_name = name;
     };
-    let mut tmpl: NetworkSegmentDetail = segment.into();
+    let mut tmpl: NetworkSegmentDetail = match segment.try_into() {
+        Ok(t) => t,
+        Err(err) => {
+            tracing::error!(err, "malformed network segment");
+            return (StatusCode::INTERNAL_SERVER_ERROR, err).into_response();
+        }
+    };
+
     tmpl.domain_name = domain_name;
+
+    if let Ok(mut histories) = state
+        .find_network_segment_state_histories(tonic::Request::new(
+            forgerpc::NetworkSegmentStateHistoriesRequest {
+                network_segment_ids: vec![segment_id],
+            },
+        ))
+        .await
+        .map(|r| r.into_inner().histories)
+        && let Some(records) = histories.remove(&segment_id.to_string())
+    {
+        tmpl.history = records
+            .records
+            .into_iter()
+            .map(|h| NetworkSegmentHistory {
+                state: h.state,
+                version: h.version,
+            })
+            .collect();
+    }
+
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
+
+impl super::Base for NetworkSegmentShow {}
+impl super::Base for NetworkSegmentDetail {}

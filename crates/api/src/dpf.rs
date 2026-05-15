@@ -17,66 +17,20 @@
 
 //! DPF SDK trait abstraction for testability.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use carbide_dpf::types::{DpuFlavorBridgeDefinition, DpuFlavorDefinition};
 use carbide_dpf::{
     BmcPasswordProvider, DpfError, DpfSdk, DpuDeviceInfo, DpuNodeInfo, DpuPhase, DpuWatcher,
-    KubeRepository, ResourceLabeler, node_id_from_dpu_node_cr_name,
+    HostDpfSnapshot, KubeRepository, ResourceLabeler, ServiceTemplateVersion,
+    node_id_from_dpu_node_cr_name,
 };
 use sqlx::PgPool;
 use tokio::task::JoinSet;
 
-use crate::cfg::file::CarbideConfig;
 use crate::state_controller::controller::Enqueuer;
 use crate::state_controller::machine::io::MachineStateControllerIO;
-
-const BF_CFG_TEMPLATE: &str = include_str!("../files/bf.cfg");
-const BF_CFG_FW_UPDATE_TEMPLATE: &str = include_str!("../../../pxe/templates/bmc_fw_update");
-
-const API_URL_KEY: &str = "api_url";
-const PXE_URL_KEY: &str = "pxe_url";
-const API_URL: &str = "https://carbide-api.forge";
-const PXE_URL: &str = "http://carbide-pxe.forge";
-const BMC_FW_UPDATE_KEY: &str = "bmc_fw_update";
-const SECONDS_SINCE_EPOCH_KEY: &str = "seconds_since_epoch";
-const HBN_REPS_KEY: &str = "forge_hbn_reps";
-const HBN_SFS_KEY: &str = "forge_hbn_sfs";
-const VF_INTERCEPT_BRIDGE_NAME_KEY: &str = "forge_vf_intercept_bridge_name";
-const HOST_INTERCEPT_BRIDGE_NAME_KEY: &str = "forge_host_intercept_bridge_name";
-const HOST_INTERCEPT_HBN_PORT_KEY: &str = "forge_host_intercept_hbn_port";
-const HOST_INTERCEPT_BRIDGE_PORT_KEY: &str = "forge_host_intercept_bridge_port";
-const VF_INTERCEPT_HBN_PORT_KEY: &str = "forge_vf_intercept_hbn_port";
-const VF_INTERCEPT_BRIDGE_PORT_KEY: &str = "forge_vf_intercept_bridge_port";
-const VF_INTERCEPT_BRIDGE_SF_REPRESENTOR_KEY: &str = "forge_vf_intercept_bridge_sf_representor";
-const VF_INTERCEPT_BRIDGE_SF_HBN_BRIDGE_REPRESENTOR_KEY: &str =
-    "forge_vf_intercept_bridge_sf_hbn_bridge_representor";
-const VF_INTERCEPT_BRIDGE_SF_KEY: &str = "forge_vf_intercept_bridge_sf";
-
-const BFB_PATH: &str = "/public/blobs/internal/aarch64/forge.bfb";
-
-/// Resolve the BFB download URL by looking up the external LoadBalancer IP of
-/// the `carbide-pxe-external` Service. The DPU fetches the BFB over the
-/// out-of-band management network, so it needs the external IP — not an
-/// in-cluster DNS name.
-pub async fn resolve_bfb_url() -> Result<String, DpfError> {
-    let client = kube::Client::try_default().await?;
-    let services =
-        kube::Api::<k8s_openapi::api::core::v1::Service>::namespaced(client, "forge-system");
-    let pxe_service = services.get("carbide-pxe-external").await?;
-    let pxe_ip = pxe_service
-        .status
-        .and_then(|s| s.load_balancer)
-        .and_then(|lb| lb.ingress)
-        .and_then(|ingress| ingress.first().cloned())
-        .and_then(|entry| entry.ip)
-        .ok_or_else(|| {
-            DpfError::ConfigError("carbide-pxe-external service has no LoadBalancer IP".to_string())
-        })?;
-    Ok(format!("http://{pxe_ip}{BFB_PATH}"))
-}
 
 /// Trait for DPF SDK operations used by Carbide.
 ///
@@ -103,7 +57,7 @@ pub trait DpfOperations: Send + Sync + std::fmt::Debug {
     /// Force delete a host and all its DPU resources.
     async fn force_delete_host(
         &self,
-        node_name: &str,
+        node_id: &str,
         dpu_device_names: &[String],
     ) -> Result<(), DpfError>;
 
@@ -123,6 +77,15 @@ pub trait DpfOperations: Send + Sync + std::fmt::Debug {
     /// Check that a DPUNode's labels match the current expected labels.
     /// Returns `false` when the node exists but has stale labels.
     async fn verify_node_labels(&self, node_name: &str) -> Result<bool, DpfError>;
+
+    /// Curated snapshot of all DPF CRs related to one host (DPUNode +
+    /// DPUDevices + DPUs). `node_name` is the full DPUNode CR name.
+    async fn snapshot_host(&self, node_name: &str) -> Result<HostDpfSnapshot, DpfError>;
+
+    /// List helm-chart versions declared on each live `DPUServiceTemplate`
+    /// CR — used for comparing config vs deployed state.
+    async fn list_service_template_versions(&self)
+    -> Result<Vec<ServiceTemplateVersion>, DpfError>;
 }
 
 /// Applies carbide-specific labels to DPF resources.
@@ -155,8 +118,8 @@ impl ResourceLabeler for CarbideDPFLabeler {
                 info.host_bmc_ip.clone(),
             ),
             (
-                "carbide.nvidia.com/host-machine-id".to_string(),
-                info.host_machine_id.clone(),
+                "carbide.nvidia.com/is-primary-dpu".to_string(),
+                info.is_primary.to_string(),
             ),
             (
                 "carbide.nvidia.com/dpu-machine-id".to_string(),
@@ -177,8 +140,8 @@ impl ResourceLabeler for CarbideDPFLabeler {
 
     fn node_context_labels(&self, info: &DpuNodeInfo) -> BTreeMap<String, String> {
         BTreeMap::from([(
-            "carbide.nvidia.com/host-machine-id".to_string(),
-            info.host_machine_id.clone(),
+            "carbide.nvidia.com/host-bmc-ip".to_string(),
+            info.host_bmc_ip.clone(),
         )])
     }
 
@@ -384,12 +347,10 @@ impl DpfOperations for DpfSdkOps {
 
     async fn force_delete_host(
         &self,
-        node_name: &str,
+        node_id: &str,
         dpu_device_names: &[String],
     ) -> Result<(), DpfError> {
-        self.sdk
-            .force_delete_host(node_name, dpu_device_names)
-            .await
+        self.sdk.force_delete_host(node_id, dpu_device_names).await
     }
 
     async fn reprovision_dpu(
@@ -419,161 +380,14 @@ impl DpfOperations for DpfSdkOps {
     async fn verify_node_labels(&self, node_name: &str) -> Result<bool, DpfError> {
         self.sdk.verify_node_labels(node_name).await
     }
-}
 
-impl From<CarbideConfig> for DpuFlavorDefinition {
-    fn from(config: CarbideConfig) -> Self {
-        let mut definition = Self {
-            carbide_hbn_reps: None,
-            carbide_hbn_sfs: None,
-            bridge_def: None,
-        };
-        if let Some(vmaas) = config.vmaas_config.as_ref() {
-            if let Some(hbn_reps) = vmaas.hbn_reps.as_ref() {
-                definition.carbide_hbn_reps = Some(hbn_reps.clone());
-            }
-            if let Some(hbn_sfs) = vmaas.hbn_sfs.as_ref() {
-                definition.carbide_hbn_sfs = Some(hbn_sfs.clone());
-            }
-
-            if let Some(bridge) = vmaas.bridging.as_ref() {
-                let vf_intercept_bridge_name = bridge.vf_intercept_bridge_name.clone();
-                let vf_intercept_bridge_port = bridge.vf_intercept_bridge_port.clone();
-                let host_intercept_bridge_name = bridge.host_intercept_bridge_name.clone();
-                let host_intercept_bridge_port = bridge.host_intercept_bridge_port.clone();
-                let vf_intercept_bridge_sf = bridge.vf_intercept_bridge_sf.clone();
-
-                let bridge = DpuFlavorBridgeDefinition {
-                    vf_intercept_bridge_name,
-                    vf_intercept_bridge_port,
-                    host_intercept_bridge_name,
-                    host_intercept_bridge_port,
-                    vf_intercept_bridge_sf,
-                };
-
-                definition.bridge_def = Some(bridge);
-            }
-        }
-
-        definition
+    async fn snapshot_host(&self, node_name: &str) -> Result<HostDpfSnapshot, DpfError> {
+        self.sdk.snapshot_host(node_name).await
     }
-}
 
-fn bfcfg_context(config: &CarbideConfig) -> HashMap<String, String> {
-    let mut context = HashMap::new();
-    context.insert(API_URL_KEY.to_string(), API_URL.to_string());
-    context.insert(PXE_URL_KEY.to_string(), PXE_URL.to_string());
-
-    let fw_context = tera::Context::new();
-    let fw_update =
-        tera::Tera::one_off(BF_CFG_FW_UPDATE_TEMPLATE, &fw_context, false).unwrap_or_default();
-    context.insert(BMC_FW_UPDATE_KEY.to_string(), fw_update);
-
-    let seconds_since_epoch = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("Time went backwards")
-        .as_secs();
-    context.insert(
-        SECONDS_SINCE_EPOCH_KEY.to_string(),
-        seconds_since_epoch.to_string(),
-    );
-
-    if let Some(vmaas) = config.vmaas_config.as_ref() {
-        if let Some(hbn_reps) = vmaas.hbn_reps.as_ref() {
-            context.insert(HBN_REPS_KEY.to_string(), hbn_reps.clone());
-        }
-
-        if let Some(hbn_sfs) = vmaas.hbn_sfs.as_ref() {
-            context.insert(HBN_SFS_KEY.to_string(), hbn_sfs.clone());
-        }
-
-        if let Some(bridge) = vmaas.bridging.as_ref() {
-            context.insert(
-                VF_INTERCEPT_BRIDGE_NAME_KEY.to_string(),
-                bridge.vf_intercept_bridge_name.clone(),
-            );
-
-            context.insert(
-                HOST_INTERCEPT_BRIDGE_NAME_KEY.to_string(),
-                bridge.host_intercept_bridge_name.clone(),
-            );
-
-            let host_intercept_bridge_port = bridge.host_intercept_bridge_port.clone();
-            context.insert(
-                HOST_INTERCEPT_HBN_PORT_KEY.to_string(),
-                format!("patch-hbn-{host_intercept_bridge_port}"),
-            );
-
-            context.insert(
-                HOST_INTERCEPT_BRIDGE_PORT_KEY.to_string(),
-                host_intercept_bridge_port,
-            );
-
-            let vf_intercept_bridge_port = bridge.vf_intercept_bridge_port.clone();
-            context.insert(
-                VF_INTERCEPT_HBN_PORT_KEY.to_string(),
-                format!("patch-hbn-{vf_intercept_bridge_port}"),
-            );
-
-            context.insert(
-                VF_INTERCEPT_BRIDGE_PORT_KEY.to_string(),
-                vf_intercept_bridge_port,
-            );
-
-            let vf_intercept_bridge_sf = bridge.vf_intercept_bridge_sf.clone();
-            context.insert(
-                VF_INTERCEPT_BRIDGE_SF_REPRESENTOR_KEY.to_string(),
-                format!("{vf_intercept_bridge_sf}_r"),
-            );
-
-            context.insert(
-                VF_INTERCEPT_BRIDGE_SF_HBN_BRIDGE_REPRESENTOR_KEY.to_string(),
-                format!("{vf_intercept_bridge_sf}_if_r"),
-            );
-
-            context.insert(
-                VF_INTERCEPT_BRIDGE_SF_KEY.to_string(),
-                vf_intercept_bridge_sf,
-            );
-        }
-    }
-    context
-}
-
-pub fn render_bfcfg(config: &CarbideConfig) -> eyre::Result<String> {
-    let context = bfcfg_context(config);
-    let tera_context = tera::Context::from_serialize(&context)
-        .map_err(|e| eyre::eyre!("Failed to serialize bf.cfg context: {e}"))?;
-    tera::Tera::one_off(BF_CFG_TEMPLATE, &tera_context, false)
-        .map_err(|e| eyre::eyre!("Failed to render bf.cfg template: {e}"))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::tests::common::api_fixtures::get_config;
-
-    #[test]
-    fn render_bfcfg_succeeds() {
-        let config = get_config();
-        let rendered = render_bfcfg(&config)
-            .expect("render_bfcfg failed — bf.cfg template has unparseable syntax");
-
-        assert!(
-            rendered.contains("{{if .OOBNetwork}}"),
-            "Go template '{{{{if .OOBNetwork}}}}' should pass through raw"
-        );
-        assert!(
-            rendered.contains("{{.KubeadmJoinCMD}}"),
-            "Go template '{{{{.KubeadmJoinCMD}}}}' should pass through raw"
-        );
-        assert!(
-            rendered.contains("https://carbide-api.forge"),
-            "Tera variable api_url should be rendered"
-        );
-        assert!(
-            rendered.contains("http://carbide-pxe.forge"),
-            "Tera variable pxe_url should be rendered"
-        );
+    async fn list_service_template_versions(
+        &self,
+    ) -> Result<Vec<ServiceTemplateVersion>, DpfError> {
+        self.sdk.list_service_template_versions().await
     }
 }

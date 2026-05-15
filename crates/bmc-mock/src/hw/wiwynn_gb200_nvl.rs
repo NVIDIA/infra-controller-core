@@ -18,9 +18,9 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
+use carbide_utils::arch::CpuArchitecture;
 use rpc::machine_discovery::{BlockDevice, CpuInfo, DiscoveryInfo, DmiData, NvmeDevice};
 use serde_json::json;
-use utils::models::arch::CpuArchitecture;
 
 use crate::{BootOptionKind, Callbacks, hw, redfish};
 
@@ -41,7 +41,7 @@ impl WiwynnGB200Nvl<'_> {
             fan: 10,
             power: 10,
             current: 10,
-            leak: 4,
+            voltage: 4,
         }
     }
 
@@ -158,12 +158,9 @@ impl WiwynnGB200Nvl<'_> {
                 manufacturer: nic.manufacturer,
                 part_number: nic.part_number,
                 model: Some("GB200 NVL".into()),
-                serial_number: None,
                 network_adapters,
                 pcie_devices: Some(vec![]),
-                sensors: None,
-                assembly: None,
-                oem: None,
+                ..redfish::chassis::SingleChassisConfig::defaults()
             }
         };
         redfish::chassis::ChassisConfig {
@@ -173,12 +170,8 @@ impl WiwynnGB200Nvl<'_> {
                 manufacturer: Some("WIWYNN".into()),
                 part_number: Some("B81.11810.0005".into()),
                 model: Some("GB200 NVL".into()),
-                serial_number: None,
-                network_adapters: None,
                 pcie_devices: Some(vec![]),
-                sensors: None,
-                assembly: None,
-                oem: None,
+                ..redfish::chassis::SingleChassisConfig::defaults()
             })
             .chain(std::iter::once(redfish::chassis::SingleChassisConfig {
                 id: "Chassis_0".into(),
@@ -186,13 +179,11 @@ impl WiwynnGB200Nvl<'_> {
                 manufacturer: Some("NVIDIA".into()),
                 part_number: Some("B81.11810.000D".into()),
                 model: Some("GB200 NVL".into()),
-                serial_number: None,
-                network_adapters: None,
-                pcie_devices: None,
                 sensors: Some(redfish::sensor::generate_chassis_sensors(
                     "Chassis_0",
                     Self::sensor_layout(),
                 )),
+                leak_detectors: Some(redfish::leak_detector::generate_chassis_leak_detectors(4)),
                 assembly: Some(
                     redfish::assembly::builder(&redfish::assembly::chassis_resource("Chassis_0"))
                         .add_data(
@@ -202,7 +193,7 @@ impl WiwynnGB200Nvl<'_> {
                         )
                         .build(),
                 ),
-                oem: None,
+                ..redfish::chassis::SingleChassisConfig::defaults()
             }))
             .chain((0..4).map(|index| {
                 hw::nvidia_gbx00::cbc_chassis(format!("CBC_{index}").into(), &self.topology)
@@ -315,7 +306,9 @@ impl WiwynnGB200Nvl<'_> {
                 })
                 .collect(),
             machine_type: CpuArchitecture::Aarch64.to_string(),
-            machine_arch: Some(CpuArchitecture::Aarch64.into()),
+            machine_arch: Some(rpc::utils::cpu_architecture_to_rpc(
+                CpuArchitecture::Aarch64,
+            )),
             nvme_devices: (0..9)
                 .map(|n| NvmeDevice {
                     model: "SAMSUNG MZTL63T8HFLT-00AW7".into(),

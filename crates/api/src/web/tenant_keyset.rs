@@ -25,7 +25,7 @@ use hyper::http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
 
-use super::filters;
+use super::{Base, filters};
 use crate::api::Api;
 
 #[derive(Template)]
@@ -119,7 +119,7 @@ async fn fetch_keysets(api: Arc<Api>) -> Result<forgerpc::TenantKeySetList, toni
             .await?
             .into_inner();
 
-        keyset.extend(next_keysets.keyset.into_iter());
+        keyset.extend(next_keysets.keyset);
         offset += page_size;
     }
 
@@ -210,3 +210,6 @@ pub async fn detail(
     let keyset_detail: TenantKeysetDetail = keyset.into();
     (StatusCode::OK, Html(keyset_detail.render().unwrap())).into_response()
 }
+
+impl super::Base for KeysetShow {}
+impl super::Base for TenantKeysetDetail {}

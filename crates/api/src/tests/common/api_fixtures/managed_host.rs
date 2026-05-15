@@ -19,6 +19,7 @@ use std::iter;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU32, Ordering};
 
+use carbide_redfish::libredfish::conv::IntoModel;
 use itertools::Itertools;
 use libredfish::{OData, PCIeDevice};
 use mac_address::MacAddress;
@@ -45,7 +46,7 @@ pub enum HardwareInfoTemplate {
 }
 
 /// Describes a Managed Host
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ManagedHostConfig {
     pub serial: String,
     pub bmc_mac_address: MacAddress,
@@ -253,6 +254,7 @@ impl From<ManagedHostConfig> for EndpointExplorationReport {
                     description: Some(format!("Embedded NIC 1 Port {port} Partition 1")),
                     interface_enabled: Some(true),
                     mac_address: Some(*mac),
+                    link_status: None,
                     uefi_device_path: None,
                 }
             })
@@ -263,6 +265,7 @@ impl From<ManagedHostConfig> for EndpointExplorationReport {
                     description: Some(format!("NIC in Slot {slot} Port 1")),
                     interface_enabled: Some(true),
                     mac_address: Some(dpu.host_mac_address),
+                    link_status: None,
                     uefi_device_path: Some(
                         dpu.override_hosts_uefi_device_path.clone().unwrap_or(
                             UefiDevicePath::from_str(&format!(
@@ -289,6 +292,7 @@ impl From<ManagedHostConfig> for EndpointExplorationReport {
                     description: Some("Management Network Interface".to_string()),
                     interface_enabled: Some(true),
                     mac_address: Some(value.bmc_mac_address),
+                    link_status: None,
                     uefi_device_path: None,
                 }],
             }],
@@ -299,7 +303,10 @@ impl From<ManagedHostConfig> for EndpointExplorationReport {
                 serial_number: Some(value.serial.clone()),
                 ethernet_interfaces: systems_ethernet_interfaces,
                 attributes: ComputerSystemAttributes::default(),
-                pcie_devices: pcie_devices.into_iter().map(Into::into).collect(),
+                pcie_devices: pcie_devices
+                    .into_iter()
+                    .map(IntoModel::into_model)
+                    .collect(),
                 base_mac: None,
                 power_state: PowerState::On,
                 sku: None,

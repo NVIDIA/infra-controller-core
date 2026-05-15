@@ -15,11 +15,18 @@
  * limitations under the License.
  */
 
+// Disabling the linux-build flag disables a ton of code in this module: Don't bother allowing every
+// instance of it.
+#![cfg_attr(not(feature = "linux-build"), allow(dead_code, unused_imports))]
+
 pub mod measured_boot;
 
+pub mod digest_crate_shim;
 pub mod tpm_ca_cert;
+
 use carbide_uuid::machine::MachineId;
 use db::{ObjectFilter, Transaction};
+#[cfg(any(feature = "linux-build", test))]
 pub use measured_boot::*;
 use model::hardware_info::TpmEkCertificate;
 use model::machine::machine_search_config::MachineSearchConfig;

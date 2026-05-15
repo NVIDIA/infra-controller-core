@@ -47,10 +47,13 @@ pub async fn find_upgrade_needed(
     let query = format!(
         r#"select machines.id, explored_endpoints.exploration_report->>'Vendor', explored_endpoints.exploration_report->>'Model'
         FROM explored_endpoints
-        INNER JOIN machine_topologies
-            ON SPLIT_PART(explored_endpoints.address::text, '/', 1) = machine_topologies.topology->'bmc_info'->>'ip'
+        INNER JOIN machine_interface_addresses
+            ON explored_endpoints.address = machine_interface_addresses.address
+        INNER JOIN machine_interfaces
+            ON machine_interface_addresses.interface_id = machine_interfaces.id
+            AND machine_interfaces.interface_type = 'Bmc'
         INNER JOIN machines
-            ON machine_topologies.machine_id = machines.id
+            ON machine_interfaces.machine_id = machines.id
         INNER JOIN desired_firmware
             ON explored_endpoints.exploration_report->>'Vendor' = desired_firmware.vendor AND explored_endpoints.exploration_report->>'Model' = desired_firmware.model
         WHERE starts_with(machines.id, '{host_prefix}')
@@ -84,7 +87,7 @@ pub async fn find_completed_updates(
 ) -> Result<Vec<MachineId>, DatabaseError> {
     let query = r#"SELECT id FROM machines
                     WHERE host_reprovisioning_requested IS NULL
-                            AND coalesce(health_report_overrides, '{"merges": {}}'::jsonb)->'merges' ? 'host-fw-update' = TRUE"#;
+                            AND coalesce(health_reports, '{"merges": {}}'::jsonb)->'merges' ? 'host-fw-update' = TRUE"#;
     sqlx::query_as::<_, MachineId>(query)
         .fetch_all(txn)
         .await

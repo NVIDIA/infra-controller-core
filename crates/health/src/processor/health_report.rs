@@ -225,6 +225,7 @@ impl EventProcessor for HealthReportProcessor {
                 };
                 let report = HealthReport {
                     source: ReportSource::BmcSensors,
+                    target: context.health_report_target(),
                     observed_at: Some(chrono::Utc::now()),
                     successes: window.successes,
                     alerts: window.alerts,
@@ -238,6 +239,9 @@ impl EventProcessor for HealthReportProcessor {
                 );
 
                 return vec![CollectorEvent::HealthReport(Arc::new(report))];
+            }
+            CollectorEvent::CollectorRemoved => {
+                self.windows.remove(&Self::stream_key(context));
             }
             CollectorEvent::Log(_)
             | CollectorEvent::Firmware(_)
@@ -258,6 +262,7 @@ mod tests {
 
     use super::*;
     use crate::endpoint::{BmcAddr, EndpointMetadata, MachineData};
+    use crate::sink::HealthReportTarget;
 
     fn test_context() -> EventContext {
         EventContext {
@@ -273,6 +278,9 @@ mod tests {
                     .parse()
                     .expect("valid machine id"),
                 machine_serial: None,
+                slot_number: None,
+                tray_index: None,
+                nvlink_domain_uuid: None,
             })),
             rack_id: None,
         }
@@ -318,7 +326,22 @@ mod tests {
         };
 
         assert_eq!(report.source, ReportSource::BmcSensors);
+        assert_eq!(report.target, Some(HealthReportTarget::Machine));
         assert!(report.successes.is_empty());
         assert_eq!(report.alerts.len(), 1);
+    }
+
+    #[test]
+    fn collector_removed_clears_metric_window() {
+        let processor = HealthReportProcessor::new();
+        let context = test_context();
+
+        let _ = processor.process_event(&context, &CollectorEvent::MetricCollectionStart);
+        assert_eq!(processor.windows.len(), 1);
+
+        let emitted = processor.process_event(&context, &CollectorEvent::CollectorRemoved);
+
+        assert!(emitted.is_empty());
+        assert!(processor.windows.is_empty());
     }
 }

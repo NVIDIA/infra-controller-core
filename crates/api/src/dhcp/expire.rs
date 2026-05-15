@@ -17,6 +17,7 @@
 
 use std::net::IpAddr;
 
+use mac_address::MacAddress;
 use rpc::forge as rpc;
 use tonic::{Request, Response};
 
@@ -27,17 +28,55 @@ pub async fn expire_dhcp_lease(
     api: &Api,
     request: Request<rpc::ExpireDhcpLeaseRequest>,
 ) -> Result<Response<rpc::ExpireDhcpLeaseResponse>, CarbideError> {
-    let ip_address: IpAddr = request.into_inner().ip_address.parse()?;
+    let rpc::ExpireDhcpLeaseRequest {
+        ip_address,
+        mac_address,
+    } = request.into_inner();
+    let ip_address: IpAddr = ip_address.parse()?;
+    let mac_address: Option<MacAddress> = mac_address
+        .as_deref()
+        .map(|m| m.parse::<MacAddress>().map_err(CarbideError::from))
+        .transpose()?;
 
     let mut txn = api.txn_begin().await?;
-    let deleted = db::machine_interface_address::delete_by_address(&mut txn, ip_address).await?;
+    // When the caller provides the MAC, scope the delete to the (ip, mac)
+    // pair. Otherwise, just call the address-only variant, which would
+    // be something we would see from an admin-cli call used for deleting
+    // a specific IP allocation.
+    let deleted = match mac_address {
+        Some(mac) => {
+            db::machine_interface_address::delete_by_address_and_mac(
+                &mut txn,
+                ip_address,
+                mac,
+                model::allocation_type::AllocationType::Dhcp,
+            )
+            .await?
+        }
+        None => {
+            db::machine_interface_address::delete_by_address(
+                &mut txn,
+                ip_address,
+                model::allocation_type::AllocationType::Dhcp,
+            )
+            .await?
+        }
+    };
     txn.commit().await?;
 
     let status = if deleted {
-        tracing::info!(%ip_address, "Released expired DHCP lease allocation");
+        tracing::info!(
+            %ip_address,
+            ?mac_address,
+            "Released expired DHCP lease allocation"
+        );
         rpc::ExpireDhcpLeaseStatus::Released
     } else {
-        tracing::debug!(%ip_address, "No allocation found for expired DHCP lease");
+        tracing::debug!(
+            %ip_address,
+            ?mac_address,
+            "No allocation found for expired DHCP lease"
+        );
         rpc::ExpireDhcpLeaseStatus::NotFound
     };
 

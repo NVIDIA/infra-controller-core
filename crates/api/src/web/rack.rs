@@ -26,7 +26,8 @@ use carbide_uuid::rack::RackId;
 use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
 
-use super::filters;
+use super::state_history::StateHistoryTable;
+use super::{Base, filters};
 use crate::api::Api;
 
 #[derive(Template)]
@@ -35,25 +36,37 @@ struct Racks {
     racks: Vec<RackRecord>,
 }
 
-#[derive(Debug, serde::Serialize)]
 struct RackRecord {
     id: String,
-    rack_state: String,
-    expected_compute_trays: String,
-    current_compute_trays: String,
-    expected_power_shelves: String,
-    current_power_shelves: String,
+    state_display: super::StateDisplay,
+}
+
+impl From<rpc::forge::Rack> for RackRecord {
+    fn from(rack: rpc::forge::Rack) -> Self {
+        let lifecycle = rack
+            .status
+            .as_ref()
+            .and_then(|status| status.lifecycle.as_ref());
+
+        Self {
+            id: rack.id.map(|id| id.to_string()).unwrap_or_default(),
+            state_display: super::StateDisplay::from_lifecycle(lifecycle),
+        }
+    }
 }
 
 #[derive(Template)]
 #[template(path = "rack_detail.html")]
 struct RackDetail {
     id: String,
-    rack: Option<rpc::forge::Rack>,
+    lifecycle_detail: super::LifecycleDetail,
+    version: String,
+    health_detail: super::HealthDetail,
     associated_machines: Vec<String>,
     associated_switches: Vec<String>,
     associated_power_shelves: Vec<String>,
     metadata_detail: super::MetadataDetail,
+    history: StateHistoryTable,
 }
 
 /// Show all racks
@@ -66,53 +79,9 @@ pub async fn show_html(state: AxumState<Arc<Api>>) -> Response {
         }
     };
 
-    let racks = racks
-        .racks
-        .into_iter()
-        .map(|rack| {
-            let expected_compute_trays = rack.expected_compute_trays.join(", ");
-            let current_compute_trays = rack
-                .compute_trays
-                .iter()
-                .map(|m| m.to_string())
-                .collect::<Vec<String>>()
-                .join(", ");
-            let expected_power_shelves = rack.expected_power_shelves.join(", ");
-            let current_power_shelves = rack
-                .power_shelves
-                .iter()
-                .map(|ps| ps.to_string())
-                .collect::<Vec<String>>()
-                .join(", ");
-
-            RackRecord {
-                id: rack.id.map(|id| id.to_string()).unwrap_or_default(),
-                rack_state: rack.rack_state,
-                expected_compute_trays: if expected_compute_trays.is_empty() {
-                    "N/A".to_string()
-                } else {
-                    expected_compute_trays
-                },
-                current_compute_trays: if current_compute_trays.is_empty() {
-                    "N/A".to_string()
-                } else {
-                    current_compute_trays
-                },
-                expected_power_shelves: if expected_power_shelves.is_empty() {
-                    "N/A".to_string()
-                } else {
-                    expected_power_shelves
-                },
-                current_power_shelves: if current_power_shelves.is_empty() {
-                    "N/A".to_string()
-                } else {
-                    current_power_shelves
-                },
-            }
-        })
-        .collect();
-
-    let display = Racks { racks };
+    let display = Racks {
+        racks: racks.racks.into_iter().map(Into::into).collect(),
+    };
     (StatusCode::OK, Html(display.render().unwrap())).into_response()
 }
 
@@ -129,7 +98,7 @@ pub async fn show_json(state: AxumState<Arc<Api>>) -> Response {
 }
 
 pub async fn fetch_racks(api: &Api) -> Result<rpc::forge::RackList, tonic::Status> {
-    let request = tonic::Request::new(rpc::forge::RackSearchFilter {});
+    let request = tonic::Request::new(rpc::forge::RackSearchFilter::default());
 
     let rack_ids = api.find_rack_ids(request).await?.into_inner().rack_ids;
 
@@ -146,7 +115,7 @@ pub async fn fetch_racks(api: &Api) -> Result<rpc::forge::RackList, tonic::Statu
             .await?
             .into_inner();
 
-        racks.extend(next_racks.racks.into_iter());
+        racks.extend(next_racks.racks);
         offset += page_size;
     }
 
@@ -214,37 +183,85 @@ pub async fn detail(
         return (StatusCode::OK, Json(maybe_rack)).into_response();
     };
 
-    let associated_machines = match fetch_machine_ids(api, rack_id.clone()).await {
+    let associated_machines = match fetch_machine_ids(api.clone(), rack_id.clone()).await {
         Ok(m) => m,
         Err(err) => {
             tracing::error!(%err, "fetch_machine_ids");
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Error loading machine IDs",
-            )
-                .into_response();
+            vec![]
         }
     };
+
+    let associated_switches = match fetch_switch_ids(&api, &rack_id).await {
+        Ok(ids) => ids,
+        Err(err) => {
+            tracing::error!(%err, "fetch_switch_ids");
+            vec![]
+        }
+    };
+
+    let associated_power_shelves = match fetch_power_shelf_ids(&api, &rack_id).await {
+        Ok(ids) => ids,
+        Err(err) => {
+            tracing::error!(%err, "fetch_power_shelf_ids");
+            vec![]
+        }
+    };
+
+    let version = maybe_rack
+        .as_ref()
+        .map(|r| r.version.clone())
+        .unwrap_or_default();
+
+    let lifecycle = maybe_rack
+        .as_ref()
+        .and_then(|r| r.status.as_ref())
+        .and_then(|s| s.lifecycle.clone())
+        .unwrap_or_default();
 
     let metadata_detail = super::MetadataDetail {
         metadata: maybe_rack
             .as_ref()
             .and_then(|r| r.metadata.clone())
             .unwrap_or_default(),
-        metadata_version: maybe_rack
-            .as_ref()
-            .map(|r| r.version.clone())
+        metadata_version: version.clone(),
+    };
+
+    let rack_status = maybe_rack.as_ref().and_then(|rack| rack.status.as_ref());
+    let health_url = format!("/admin/rack/{rack_id}/health");
+    let health_detail = super::HealthDetail::new(
+        health_url,
+        "Go to Rack health reports",
+        rack_status.and_then(|status| status.health.clone()),
+        rack_status
+            .map(|status| status.health_sources.clone())
             .unwrap_or_default(),
+    );
+
+    let history = match super::state_history::fetch_rack_state_history_records(
+        &api,
+        rack_id.as_ref(),
+    )
+    .await
+    {
+        Ok((_rack_id, records)) => StateHistoryTable {
+            records: records.into_iter().map(Into::into).collect(),
+        },
+        Err((code, err)) => {
+            tracing::error!(%code, %err, %rack_id, "fetch_rack_state_history_records");
+            StateHistoryTable { records: vec![] }
+        }
     };
 
     let display = RackDetail {
         id: rack_id.to_string(),
-        rack: maybe_rack,
+        lifecycle_detail: lifecycle.into(),
+        version,
+        health_detail,
         associated_machines,
-        // TODO: Add discovered switches and powershelves
-        associated_power_shelves: vec![],
-        associated_switches: vec![],
+        associated_switches,
+        associated_power_shelves,
         metadata_detail,
+        history,
     };
 
     (StatusCode::OK, Html(display.render().unwrap())).into_response()
@@ -269,3 +286,38 @@ pub async fn fetch_machine_ids(
         .map(|id| id.to_string())
         .collect())
 }
+
+async fn fetch_switch_ids(api: &Api, rack_id: &RackId) -> Result<Vec<String>, tonic::Status> {
+    let request = tonic::Request::new(rpc::forge::SwitchSearchFilter {
+        rack_id: Some(rack_id.clone()),
+        ..Default::default()
+    });
+
+    Ok(api
+        .find_switch_ids(request)
+        .await?
+        .into_inner()
+        .ids
+        .into_iter()
+        .map(|id| id.to_string())
+        .collect())
+}
+
+async fn fetch_power_shelf_ids(api: &Api, rack_id: &RackId) -> Result<Vec<String>, tonic::Status> {
+    let request = tonic::Request::new(rpc::forge::PowerShelfSearchFilter {
+        rack_id: Some(rack_id.clone()),
+        ..Default::default()
+    });
+
+    Ok(api
+        .find_power_shelf_ids(request)
+        .await?
+        .into_inner()
+        .ids
+        .into_iter()
+        .map(|id| id.to_string())
+        .collect())
+}
+
+impl super::Base for Racks {}
+impl super::Base for RackDetail {}

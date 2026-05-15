@@ -17,11 +17,13 @@
 use ::rpc::forge as rpc;
 use carbide_uuid::machine::MachineId;
 use itertools::Itertools;
-use model::machine::LoadSnapshotOptions;
+use model::machine::{
+    HostReprovisionState, LoadSnapshotOptions, ManagedHostState, ScoutUpgradeResult,
+};
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
-use crate::api::{Api, log_request_data};
+use crate::api::{Api, log_request_data, truncate};
 use crate::handlers::utils::convert_and_log_machine_id;
 
 pub(crate) async fn reset_host_reprovisioning(
@@ -141,6 +143,91 @@ pub async fn mark_manual_firmware_upgrade_complete(
     db::host_machine_update::set_manual_firmware_upgrade_completed(&mut txn, &machine_id).await?;
 
     txn.commit().await?;
+
+    Ok(Response::new(()))
+}
+
+pub async fn report_scout_firmware_upgrade_status(
+    api: &Api,
+    request: Request<rpc::ScoutFirmwareUpgradeStatusRequest>,
+) -> Result<Response<()>, Status> {
+    log_request_data(&request);
+
+    let req = request.into_inner();
+    let machine_id = convert_and_log_machine_id(req.machine_id.as_ref())?;
+
+    let (machine, mut txn) = api.load_machine(&machine_id, Default::default()).await?;
+
+    // Verify machine is in WaitingForScoutUpgrade state
+    let ManagedHostState::HostReprovision {
+        reprovision_state:
+            HostReprovisionState::WaitingForScoutUpgrade {
+                upgrade_task_id,
+                firmware_type,
+                final_version,
+                power_drains_needed,
+                started_at,
+                deadline,
+                task_json,
+                ..
+            },
+        retry_count,
+    } = machine.current_state().clone()
+    else {
+        return Err(CarbideError::FailedPrecondition(format!(
+            "Machine {machine_id} is not in WaitingForScoutUpgrade state"
+        ))
+        .into());
+    };
+
+    if req.upgrade_task_id != upgrade_task_id {
+        tracing::warn!(
+            %machine_id,
+            expected_upgrade_task_id = %upgrade_task_id,
+            reported_upgrade_task_id = %req.upgrade_task_id,
+            "Rejecting stale scout firmware upgrade status report",
+        );
+        return Err(CarbideError::FailedPrecondition(format!(
+            "Scout firmware upgrade status task ID mismatch for machine {machine_id}"
+        ))
+        .into());
+    }
+
+    // Cap stdout/stderr/error so the JSON state row stays small; full output
+    // is available in the scout logs if an operator needs to dig deeper.
+    const MAX_STORED_OUTPUT_SIZE: usize = 1500;
+
+    let new_state = ManagedHostState::HostReprovision {
+        reprovision_state: HostReprovisionState::WaitingForScoutUpgrade {
+            upgrade_task_id,
+            firmware_type,
+            final_version,
+            power_drains_needed,
+            started_at,
+            deadline,
+            task_json,
+            result: Some(ScoutUpgradeResult {
+                success: req.success,
+                exit_code: req.exit_code,
+                stdout: truncate(req.stdout, MAX_STORED_OUTPUT_SIZE),
+                stderr: truncate(req.stderr, MAX_STORED_OUTPUT_SIZE),
+                error: truncate(req.error, MAX_STORED_OUTPUT_SIZE),
+            }),
+        },
+        retry_count,
+    };
+
+    db::machine::advance(&machine, &mut txn, &new_state, None).await?;
+
+    txn.commit().await?;
+
+    if let Err(err) = api
+        .machine_state_handler_enqueuer
+        .enqueue_object(&machine_id)
+        .await
+    {
+        tracing::warn!(%err, %machine_id, "Failed to wake up state handler for machine");
+    }
 
     Ok(Response::new(()))
 }

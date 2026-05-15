@@ -16,13 +16,15 @@
  */
 
 use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge as rpc;
+use ::rpc::forge::{self as rpc, HealthReportEntry};
 use db::{ObjectColumnFilter, power_shelf as db_power_shelf};
+use health_report::HealthReportApplyMode;
 use model::metadata::Metadata;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::{Api, log_request_data};
+use crate::auth::AuthContext;
 
 pub async fn find_power_shelf(
     api: &Api,
@@ -42,7 +44,6 @@ pub async fn find_power_shelf(
         db_power_shelf::find_by(
             &mut txn,
             db::ObjectColumnFilter::One(db_power_shelf::IdColumn, &id),
-            db_power_shelf::PowerShelfSearchConfig::default(),
         )
         .await
         .map_err(|e| CarbideError::Internal {
@@ -53,7 +54,6 @@ pub async fn find_power_shelf(
         db_power_shelf::find_by(
             &mut txn,
             db::ObjectColumnFilter::One(db_power_shelf::NameColumn, &name),
-            db_power_shelf::PowerShelfSearchConfig::default(),
         )
         .await
         .map_err(|e| CarbideError::Internal {
@@ -64,7 +64,6 @@ pub async fn find_power_shelf(
         db_power_shelf::find_by(
             &mut txn,
             db::ObjectColumnFilter::<db_power_shelf::IdColumn>::All,
-            db_power_shelf::PowerShelfSearchConfig::default(),
         )
         .await
         .map_err(|e| CarbideError::Internal {
@@ -127,7 +126,6 @@ pub async fn find_by_ids(
     let power_shelf_list = db_power_shelf::find_by(
         &mut txn,
         ObjectColumnFilter::List(db_power_shelf::IdColumn, &power_shelf_ids),
-        db_power_shelf::PowerShelfSearchConfig::default(),
     )
     .await?;
 
@@ -148,6 +146,7 @@ pub async fn find_by_ids(
                         version: None,
                         firmware_version: None,
                         port: None,
+                        machine_interface_id: None,
                     },
                 )
             })
@@ -201,7 +200,6 @@ pub async fn delete_power_shelf(
     let mut power_shelf_list = db_power_shelf::find_by(
         &mut txn,
         db::ObjectColumnFilter::One(db_power_shelf::IdColumn, &power_shelf_id),
-        db_power_shelf::PowerShelfSearchConfig::default(),
     )
     .await
     .map_err(|e| CarbideError::Internal {
@@ -230,6 +228,216 @@ pub async fn delete_power_shelf(
     Ok(Response::new(rpc::PowerShelfDeletionResult {}))
 }
 
+/// Force deletes a power shelf and optionally its associated interfaces from the database.
+/// Unlike `delete_power_shelf` (soft delete), this immediately hard-deletes the power shelf,
+/// its state history, and optionally its machine interfaces.
+pub async fn admin_force_delete_power_shelf(
+    api: &Api,
+    request: Request<rpc::AdminForceDeletePowerShelfRequest>,
+) -> Result<Response<rpc::AdminForceDeletePowerShelfResponse>, Status> {
+    log_request_data(&request);
+    let request = request.into_inner();
+
+    let power_shelf_id = request
+        .power_shelf_id
+        .ok_or_else(|| CarbideError::InvalidArgument("power_shelf_id is required".to_string()))?;
+
+    let mut txn = api.txn_begin().await?;
+
+    // Verify the power shelf exists.
+    let power_shelf_list = db_power_shelf::find_by(
+        &mut txn,
+        db::ObjectColumnFilter::One(db_power_shelf::IdColumn, &power_shelf_id),
+    )
+    .await
+    .map_err(CarbideError::from)?;
+
+    if power_shelf_list.is_empty() {
+        return Err(CarbideError::NotFoundError {
+            kind: "power_shelf",
+            id: power_shelf_id.to_string(),
+        }
+        .into());
+    }
+
+    // Optionally delete associated machine interfaces.
+    let mut interfaces_deleted: u32 = 0;
+    if request.delete_interfaces {
+        let interface_ids =
+            db::machine_interface::find_ids_by_power_shelf_id(&mut txn, &power_shelf_id)
+                .await
+                .map_err(CarbideError::from)?;
+        for interface_id in &interface_ids {
+            db::machine_interface::delete(interface_id, &mut txn)
+                .await
+                .map_err(CarbideError::from)?;
+        }
+        interfaces_deleted = interface_ids.len() as u32;
+    }
+
+    // Delete state history.
+    db::state_history::delete_by_object_id(
+        &mut txn,
+        db::state_history::StateHistoryTableId::PowerShelf,
+        &power_shelf_id,
+    )
+    .await
+    .map_err(CarbideError::from)?;
+
+    // Hard-delete the power shelf.
+    db_power_shelf::final_delete(power_shelf_id, &mut txn)
+        .await
+        .map_err(CarbideError::from)?;
+
+    txn.commit().await?;
+
+    Ok(Response::new(rpc::AdminForceDeletePowerShelfResponse {
+        power_shelf_id: power_shelf_id.to_string(),
+        interfaces_deleted,
+    }))
+}
+
+pub async fn set_power_shelf_maintenance(
+    api: &Api,
+    request: Request<rpc::PowerShelfMaintenanceRequest>,
+) -> Result<Response<()>, Status> {
+    log_request_data(&request);
+
+    let triggered_by = request
+        .extensions()
+        .get::<AuthContext>()
+        .and_then(|ctx| ctx.get_external_user_name())
+        .map(String::from);
+
+    let req = request.into_inner();
+    let operation = req.operation();
+    let power_shelf_ids = req.power_shelf_ids;
+
+    if power_shelf_ids.is_empty() {
+        return Err(CarbideError::InvalidArgument(
+            "at least one power_shelf_id must be provided".to_string(),
+        )
+        .into());
+    }
+
+    let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
+    if power_shelf_ids.len() > max_find_by_ids {
+        return Err(CarbideError::InvalidArgument(format!(
+            "no more than {max_find_by_ids} power_shelf_ids can be accepted"
+        ))
+        .into());
+    }
+
+    let operation = match operation {
+        rpc::PowerShelfMaintenanceOperation::PowerOn => {
+            model::power_shelf::PowerShelfMaintenanceOperation::PowerOn
+        }
+        rpc::PowerShelfMaintenanceOperation::PowerOff => {
+            model::power_shelf::PowerShelfMaintenanceOperation::PowerOff
+        }
+        rpc::PowerShelfMaintenanceOperation::Unspecified => {
+            return Err(CarbideError::InvalidArgument(
+                "operation must be PowerOn or PowerOff".to_string(),
+            )
+            .into());
+        }
+    };
+
+    let initiator = match (triggered_by, req.reference) {
+        (Some(user), Some(reference)) => format!("{user} ({reference})"),
+        (Some(user), None) => user,
+        (None, Some(reference)) => reference,
+        (None, None) => "admin-cli".to_string(),
+    };
+
+    let mut txn = api.txn_begin().await?;
+
+    let existing = db_power_shelf::find_by(
+        &mut txn,
+        ObjectColumnFilter::List(db_power_shelf::IdColumn, &power_shelf_ids),
+    )
+    .await
+    .map_err(CarbideError::from)?;
+
+    let mut by_id: std::collections::HashMap<_, _> =
+        existing.into_iter().map(|ps| (ps.id, ps)).collect();
+
+    for power_shelf_id in &power_shelf_ids {
+        let power_shelf =
+            by_id
+                .remove(power_shelf_id)
+                .ok_or_else(|| CarbideError::NotFoundError {
+                    kind: "power_shelf",
+                    id: power_shelf_id.to_string(),
+                })?;
+
+        if power_shelf.is_marked_as_deleted() {
+            return Err(CarbideError::InvalidArgument(format!(
+                "power shelf {power_shelf_id} is marked for deletion",
+            ))
+            .into());
+        }
+
+        db_power_shelf::set_power_shelf_maintenance_requested(
+            &mut txn,
+            *power_shelf_id,
+            &initiator,
+            operation,
+        )
+        .await
+        .map_err(CarbideError::from)?;
+    }
+
+    txn.commit().await?;
+
+    Ok(Response::new(()))
+}
+
+pub async fn find_power_shelf_state_histories(
+    api: &Api,
+    request: Request<rpc::PowerShelfStateHistoriesRequest>,
+) -> Result<Response<rpc::StateHistories>, Status> {
+    log_request_data(&request);
+    let request = request.into_inner();
+    let power_shelf_ids = request.power_shelf_ids;
+
+    let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
+    if power_shelf_ids.len() > max_find_by_ids {
+        return Err(CarbideError::InvalidArgument(format!(
+            "no more than {max_find_by_ids} IDs can be accepted"
+        ))
+        .into());
+    } else if power_shelf_ids.is_empty() {
+        return Err(
+            CarbideError::InvalidArgument("at least one ID must be provided".to_string()).into(),
+        );
+    }
+
+    let mut txn = api.txn_begin().await?;
+
+    let results = db::state_history::find_by_object_ids(
+        &mut txn,
+        db::state_history::StateHistoryTableId::PowerShelf,
+        &power_shelf_ids,
+    )
+    .await
+    .map_err(CarbideError::from)?;
+
+    let mut response = rpc::StateHistories::default();
+    for (power_shelf_id, records) in results {
+        response.histories.insert(
+            power_shelf_id,
+            ::rpc::forge::StateHistoryRecords {
+                records: records.into_iter().map(Into::into).collect(),
+            },
+        );
+    }
+
+    txn.commit().await?;
+
+    Ok(tonic::Response::new(response))
+}
+
 pub(crate) async fn update_power_shelf_metadata(
     api: &Api,
     request: Request<rpc::PowerShelfMetadataUpdateRequest>,
@@ -255,7 +463,6 @@ pub(crate) async fn update_power_shelf_metadata(
     let power_shelves = db_power_shelf::find_by(
         &mut txn,
         db::ObjectColumnFilter::One(db_power_shelf::IdColumn, &power_shelf_id),
-        db_power_shelf::PowerShelfSearchConfig::default(),
     )
     .await
     .map_err(CarbideError::from)?;
@@ -279,4 +486,161 @@ pub(crate) async fn update_power_shelf_metadata(
     txn.commit().await?;
 
     Ok(tonic::Response::new(()))
+}
+
+pub async fn list_power_shelf_health_reports(
+    api: &Api,
+    request: Request<rpc::ListPowerShelfHealthReportsRequest>,
+) -> Result<Response<rpc::ListHealthReportResponse>, Status> {
+    log_request_data(&request);
+
+    let req = request.into_inner();
+    let power_shelf_id = req
+        .power_shelf_id
+        .ok_or_else(|| CarbideError::MissingArgument("power_shelf_id"))?;
+
+    let mut conn = api
+        .database_connection
+        .acquire()
+        .await
+        .map_err(|e| CarbideError::Internal {
+            message: format!("Database error: {}", e),
+        })?;
+
+    let power_shelf = db_power_shelf::find_by_id(&mut conn, &power_shelf_id)
+        .await
+        .map_err(CarbideError::from)?
+        .ok_or_else(|| CarbideError::NotFoundError {
+            kind: "power_shelf",
+            id: power_shelf_id.to_string(),
+        })?;
+
+    Ok(Response::new(rpc::ListHealthReportResponse {
+        health_report_entries: power_shelf
+            .health_reports
+            .into_iter()
+            .map(|o| HealthReportEntry {
+                report: Some(o.0.into()),
+                mode: o.1 as i32,
+            })
+            .collect(),
+    }))
+}
+
+pub async fn insert_power_shelf_health_report(
+    api: &Api,
+    request: Request<rpc::InsertPowerShelfHealthReportRequest>,
+) -> Result<Response<()>, Status> {
+    log_request_data(&request);
+
+    let triggered_by = request
+        .extensions()
+        .get::<AuthContext>()
+        .and_then(|ctx| ctx.get_external_user_name())
+        .map(String::from);
+
+    let rpc::InsertPowerShelfHealthReportRequest {
+        power_shelf_id,
+        health_report_entry: Some(rpc::HealthReportEntry { report, mode }),
+    } = request.into_inner()
+    else {
+        return Err(CarbideError::MissingArgument("override").into());
+    };
+    let power_shelf_id =
+        power_shelf_id.ok_or_else(|| CarbideError::MissingArgument("power_shelf_id"))?;
+
+    let Some(report) = report else {
+        return Err(CarbideError::MissingArgument("report").into());
+    };
+    let Ok(mode) = rpc::HealthReportApplyMode::try_from(mode) else {
+        return Err(CarbideError::InvalidArgument("mode".to_string()).into());
+    };
+    let mode: HealthReportApplyMode = mode.into();
+
+    let mut txn = api.txn_begin().await?;
+
+    let power_shelf = db_power_shelf::find_by_id(&mut txn, &power_shelf_id)
+        .await
+        .map_err(CarbideError::from)?
+        .ok_or_else(|| CarbideError::NotFoundError {
+            kind: "power_shelf",
+            id: power_shelf_id.to_string(),
+        })?;
+
+    let mut report = health_report::HealthReport::try_from(report.clone())
+        .map_err(|e| CarbideError::internal(e.to_string()))?;
+    if report.observed_at.is_none() {
+        report.observed_at = Some(chrono::Utc::now());
+    }
+    report.triggered_by = triggered_by;
+    report.update_in_alert_since(None);
+
+    match remove_power_shelf_health_report_by_source(&power_shelf, &mut txn, report.source.clone())
+        .await
+    {
+        Ok(_) | Err(CarbideError::NotFoundError { .. }) => {}
+        Err(e) => return Err(e.into()),
+    }
+
+    db_power_shelf::insert_health_report(&mut txn, &power_shelf_id, mode, &report).await?;
+
+    txn.commit().await?;
+
+    Ok(Response::new(()))
+}
+
+pub async fn remove_power_shelf_health_report(
+    api: &Api,
+    request: Request<rpc::RemovePowerShelfHealthReportRequest>,
+) -> Result<Response<()>, Status> {
+    log_request_data(&request);
+
+    let rpc::RemovePowerShelfHealthReportRequest {
+        power_shelf_id,
+        source,
+    } = request.into_inner();
+    let power_shelf_id =
+        power_shelf_id.ok_or_else(|| CarbideError::MissingArgument("power_shelf_id"))?;
+
+    let mut txn = api.txn_begin().await?;
+
+    let power_shelf = db_power_shelf::find_by_id(&mut txn, &power_shelf_id)
+        .await
+        .map_err(CarbideError::from)?
+        .ok_or_else(|| CarbideError::NotFoundError {
+            kind: "power_shelf",
+            id: power_shelf_id.to_string(),
+        })?;
+
+    remove_power_shelf_health_report_by_source(&power_shelf, &mut txn, source).await?;
+    txn.commit().await?;
+
+    Ok(Response::new(()))
+}
+
+async fn remove_power_shelf_health_report_by_source(
+    power_shelf: &model::power_shelf::PowerShelf,
+    txn: &mut db::Transaction<'_>,
+    source: String,
+) -> Result<(), CarbideError> {
+    let mode = if power_shelf
+        .health_reports
+        .replace
+        .as_ref()
+        .map(|o| &o.source)
+        == Some(&source)
+    {
+        HealthReportApplyMode::Replace
+    } else if power_shelf.health_reports.merges.contains_key(&source) {
+        HealthReportApplyMode::Merge
+    } else {
+        return Err(CarbideError::NotFoundError {
+            kind: "power shelf health report with source",
+            id: source,
+        });
+    };
+
+    db_power_shelf::remove_health_report(&mut *txn, &power_shelf.id, mode, &source).await?;
+
+    Ok(())
 }

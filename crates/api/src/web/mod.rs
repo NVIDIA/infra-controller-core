@@ -17,8 +17,8 @@
 
 use std::collections::HashMap;
 use std::env;
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use askama::Template;
@@ -27,10 +27,10 @@ use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::middleware::Next;
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{Router, get, post};
-use axum_extra::extract::Host;
 use axum_extra::extract::cookie::{Cookie, Key, PrivateCookieJar};
+use carbide_authn::middleware::Principal;
 use http::header::CONTENT_TYPE;
-use http::{HeaderMap, Request, StatusCode, Uri};
+use http::{HeaderMap, Request, StatusCode};
 use itertools::Itertools;
 use oauth2::basic::{
     BasicClient, BasicErrorResponse, BasicRevocationErrorResponse, BasicTokenIntrospectionResponse,
@@ -47,8 +47,32 @@ use tower_http::normalize_path::NormalizePath;
 
 use crate::CarbideError;
 use crate::api::Api;
-use crate::auth::{AuthContext, Principal};
-use crate::cfg::file::CarbideConfig;
+use crate::auth::AuthContext;
+use crate::cfg::file::{CarbideConfig, ToolLink};
+
+/// Process-global tool list. Static because `base.html` is rendered
+/// by more than 70 page structs and threading a field through all of them
+/// (and through every test fixture) is far more invasive than a
+/// write-once `OnceLock` read via the `Base` trait.
+static TOOLS: OnceLock<Vec<ToolLink>> = OnceLock::new();
+
+/// Initialize the global tool list. Call once during startup
+/// before serving any web requests. Subsequent calls are ignored.
+pub fn init_tools(tools: Vec<ToolLink>) {
+    let _ = TOOLS.set(tools);
+}
+
+/// Implemented by every page struct whose template extends `base.html`.
+/// Exposes the global tool list to the shared "Tools" sidebar via
+/// `Self::tools()`.
+pub trait Base {
+    /// Configured external tool links rendered in the admin UI's
+    /// "Tools" sidebar. Empty when no tools are configured or
+    /// when `init_tools` has not been called (e.g. unit tests).
+    fn tools() -> &'static [ToolLink] {
+        TOOLS.get().map(Vec::as_slice).unwrap_or(&[])
+    }
+}
 
 /// Reusable template for rendering metadata (name, description, labels, version)
 /// in entity detail pages. Render with `{{ metadata_detail|safe }}`.
@@ -57,6 +81,147 @@ use crate::cfg::file::CarbideConfig;
 pub(crate) struct MetadataDetail {
     pub metadata: rpc::forge::Metadata,
     pub metadata_version: String,
+}
+
+/// Reusable template for rendering aggregate health details in entity detail
+/// pages. Render with `{{ health_detail|safe }}`.
+#[derive(Template)]
+#[template(path = "health_detail.html")]
+pub(crate) struct HealthDetail {
+    pub health_reports_url: String,
+    pub health_reports_link_text: &'static str,
+    pub health: health_report::HealthReport,
+    pub health_sources: Vec<String>,
+}
+
+impl HealthDetail {
+    pub(crate) fn new(
+        health_reports_url: String,
+        health_reports_link_text: &'static str,
+        health: Option<rpc::health::HealthReport>,
+        health_sources: Vec<rpc::forge::HealthSourceOrigin>,
+    ) -> Self {
+        HealthDetail {
+            health_reports_url,
+            health_reports_link_text,
+            health: health
+                .map(|health| {
+                    health_report::HealthReport::try_from(health)
+                        .unwrap_or_else(health_report::HealthReport::malformed_report)
+                })
+                .unwrap_or_else(health_report::HealthReport::missing_report),
+            health_sources: health_sources
+                .into_iter()
+                .map(|source| source.source)
+                .collect(),
+        }
+    }
+}
+
+/// Reusable template for rendering a color-coded state bubble.
+/// Render with `{{ state_display|safe }}`.
+#[derive(Debug, Clone, PartialEq, Eq, Template)]
+#[template(path = "state_display.html")]
+pub(crate) struct StateDisplay {
+    pub state: String,
+    pub time_in_state_above_sla: bool,
+}
+
+impl StateDisplay {
+    pub fn from_lifecycle(lifecycle: Option<&forgerpc::LifecycleStatus>) -> Self {
+        let state = lifecycle
+            .map(|lifecycle| lifecycle.state.clone())
+            .filter(|state| !state.is_empty())
+            .unwrap_or_else(|| r#"{ "state": "unknown" }"#.to_string());
+        let time_in_state_above_sla = lifecycle
+            .and_then(|lifecycle| lifecycle.sla.as_ref())
+            .map(|sla| sla.time_in_state_above_sla)
+            .unwrap_or(false);
+
+        Self {
+            state,
+            time_in_state_above_sla,
+        }
+    }
+}
+
+/// Reusable template for rendering State SLA, time-in-state-above-SLA, and
+/// state handler outcome rows inside a `<table>`.
+/// Render with `{{ state_sla_detail|safe }}`.
+#[derive(Template)]
+#[template(path = "state_sla_details.html")]
+pub(crate) struct StateSlaDetail {
+    pub state_sla: String,
+    pub time_in_state_above_sla: bool,
+    pub state_reason: Option<rpc::forge::ControllerStateReason>,
+}
+
+/// Reusable template for rendering lifecycle fields.
+/// Render with `{{ lifecycle_detail|safe }}`.
+#[derive(Template)]
+#[template(path = "lifecycle_detail.html")]
+pub(crate) struct LifecycleDetail {
+    pub state_display: StateDisplay,
+    pub json_state: Option<String>,
+    pub version: String,
+    pub time_in_state: String,
+    pub state_sla: String,
+    pub time_in_state_above_sla: bool,
+    pub state_reason: Option<rpc::forge::ControllerStateReason>,
+}
+
+impl LifecycleDetail {
+    pub fn new(
+        state: String,
+        version: String,
+        state_reason: Option<forgerpc::ControllerStateReason>,
+        sla: Option<forgerpc::StateSla>,
+    ) -> Self {
+        let time_in_state_above_sla = sla
+            .as_ref()
+            .map(|sla| sla.time_in_state_above_sla)
+            .unwrap_or_default();
+        let json_state = verify_json(&state);
+        Self {
+            state_display: StateDisplay {
+                state,
+                time_in_state_above_sla,
+            },
+            json_state,
+            time_in_state: config_version::since_state_change_humanized(&version),
+            version,
+            state_sla: format_state_sla(sla.as_ref()),
+            time_in_state_above_sla,
+            state_reason,
+        }
+    }
+}
+
+impl From<forgerpc::LifecycleStatus> for LifecycleDetail {
+    fn from(lifecycle: forgerpc::LifecycleStatus) -> Self {
+        LifecycleDetail::new(
+            lifecycle.state,
+            lifecycle.version,
+            lifecycle.state_reason,
+            lifecycle.sla,
+        )
+    }
+}
+
+fn verify_json(state: &str) -> Option<String> {
+    serde_json::from_str::<serde_json::Value>(state)
+        .ok()
+        .map(|_| state.to_string())
+}
+
+fn format_state_sla(sla: Option<&forgerpc::StateSla>) -> String {
+    sla.and_then(|sla| sla.sla)
+        .map(|sla| {
+            config_version::format_duration(
+                chrono::TimeDelta::try_from(sla).unwrap_or(chrono::TimeDelta::MAX),
+            )
+        })
+        .unwrap_or_default()
 }
 
 mod action_status;
@@ -80,8 +245,8 @@ mod instance;
 mod instance_type;
 mod interface;
 mod ipam;
+mod ipxe_template;
 mod machine;
-mod machine_state_history;
 mod machine_validation;
 pub mod managed_host;
 mod network_device;
@@ -90,16 +255,16 @@ mod network_segment;
 mod network_status;
 mod nmxm_browser;
 mod nvlink;
+mod operating_system;
 mod power_shelf;
-mod power_shelf_state_history;
 mod rack;
 mod redfish_actions;
 mod redfish_browser;
 mod resource_pool;
 mod search;
 mod sku;
+mod state_history;
 mod switch;
-mod switch_state_history;
 mod tenant;
 mod tenant_keyset;
 mod ufm_browser;
@@ -126,6 +291,7 @@ const ALLOWED_ACCESS_GROUPS_ID_LIST_ENV: &str = "CARBIDE_WEB_ALLOWED_ACCESS_GROU
 const SORTABLE_JS: &str = include_str!("../../templates/static/sortable.min.js");
 const SORTABLE_CSS: &str = include_str!("../../templates/static/sortable.min.css");
 const CARBIDE_CSS: &str = include_str!("../../templates/static/carbide.css");
+const TABS_JS: &str = include_str!("../../templates/static/tabs.js");
 
 // It would appear the oauth2 author read about the typestate pattern and decided making
 // everyone declare 10 type parameters when storing a Client sounds like a great idea.
@@ -390,7 +556,7 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
                 "/machine/{machine_id}/set-dpu-first-boot-order",
                 post(machine::set_dpu_first_boot_order),
             )
-            .route("/machine/{machine_id}/health", get(health::health))
+            .route("/machine/{machine_id}/health", get(health::machine_health))
             .route(
                 "/machine/{machine_id}/health-history",
                 get(health_history::show_health_history),
@@ -401,43 +567,82 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
             )
             .route(
                 "/machine/{machine_id}/state-history",
-                get(machine_state_history::show_state_history),
+                get(state_history::show_machine_state_history),
             )
             .route(
                 "/machine/{machine_id}/state-history.json",
-                get(machine_state_history::show_state_history_json),
+                get(state_history::show_machine_state_history_json),
             )
             .route("/power-shelf", get(power_shelf::show_html))
             .route("/power-shelf.json", get(power_shelf::show_json))
+            .route("/power-shelf/{power_shelf_id}", get(power_shelf::detail))
+            .route(
+                "/power-shelf/{power_shelf_id}/health",
+                get(health::power_shelf_health),
+            )
+            .route(
+                "/power-shelf/{power_shelf_id}/health/add-report",
+                post(health::add_power_shelf_health_report),
+            )
+            .route(
+                "/power-shelf/{power_shelf_id}/health/remove-report",
+                post(health::remove_power_shelf_health_report),
+            )
             .route(
                 "/power-shelf/{power_shelf_id}/state-history",
-                get(power_shelf_state_history::show_state_history),
+                get(state_history::show_power_shelf_state_history),
             )
             .route(
                 "/power-shelf/{power_shelf_id}/state-history.json",
-                get(power_shelf_state_history::show_state_history_json),
+                get(state_history::show_power_shelf_state_history_json),
             )
             .route("/rack", get(rack::show_html))
             .route("/rack.json", get(rack::show_json))
             .route("/rack/{rack_id}", get(rack::detail))
+            .route("/rack/{rack_id}/health", get(health::rack_health))
+            .route(
+                "/rack/{rack_id}/health/add-report",
+                post(health::add_rack_health_report),
+            )
+            .route(
+                "/rack/{rack_id}/health/remove-report",
+                post(health::remove_rack_health_report),
+            )
+            .route(
+                "/rack/{rack_id}/state-history",
+                get(state_history::show_rack_state_history),
+            )
+            .route(
+                "/rack/{rack_id}/state-history.json",
+                get(state_history::show_rack_state_history_json),
+            )
             .route("/switch", get(switch::show_html))
             .route("/switch.json", get(switch::show_json))
             .route("/switch/{switch_id}", get(switch::detail))
+            .route("/switch/{switch_id}/health", get(health::switch_health))
+            .route(
+                "/switch/{switch_id}/health/add-report",
+                post(health::add_switch_health_report),
+            )
+            .route(
+                "/switch/{switch_id}/health/remove-report",
+                post(health::remove_switch_health_report),
+            )
             .route(
                 "/switch/{switch_id}/state-history",
-                get(switch_state_history::show_state_history),
+                get(state_history::show_switch_state_history),
             )
             .route(
                 "/switch/{switch_id}/state-history.json",
-                get(switch_state_history::show_state_history_json),
+                get(state_history::show_switch_state_history_json),
             )
             .route(
-                "/machine/{machine_id}/health/override/add",
-                post(health::add_override),
+                "/machine/{machine_id}/health/add-report",
+                post(health::add_machine_health_report),
             )
             .route(
-                "/machine/{machine_id}/health/override/remove",
-                post(health::remove_override),
+                "/machine/{machine_id}/health/remove-report",
+                post(health::remove_machine_health_report),
             )
             .route(
                 "/machine/{machine_id}/attestation-results",
@@ -490,6 +695,9 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
                 "/network-security-group/{network_security_group_id}/delete",
                 post(network_security_group::delete),
             )
+            .route("/ipxe-template", get(ipxe_template::show_html))
+            .route("/ipxe-template.json", get(ipxe_template::show_all_json))
+            .route("/ipxe-template/{name}", get(ipxe_template::detail))
             .route("/network-segment", get(network_segment::show_html))
             .route("/network-segment.json", get(network_segment::show_all_json))
             .route(
@@ -498,6 +706,12 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
             )
             .route("/network-status", get(network_status::show_html))
             .route("/network-status.json", get(network_status::show_all_json))
+            .route("/operating-system", get(operating_system::show_html))
+            .route(
+                "/operating-system.json",
+                get(operating_system::show_all_json),
+            )
+            .route("/operating-system/{os_id}", get(operating_system::detail))
             .route("/nmxm-browser", get(nmxm_browser::query))
             .route(
                 "/nvlink-partition",
@@ -562,22 +776,10 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
 }
 
 pub async fn auth_oauth2(
-    Host(hostname): Host,
     headers: HeaderMap,
     mut req: Request<AxumBody>,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    // Remove the port (this matters on localhost) since a cookie for localhost:1079
-    // does not apply for the a page hosted on localhost:1079. Instead the cookie
-    // must be for localhost.
-
-    let Some(hostname) = Uri::try_from(hostname)
-        .ok()
-        .and_then(|uri| uri.host().map(|host| host.to_owned()))
-    else {
-        return Err(StatusCode::INTERNAL_SERVER_ERROR);
-    };
-
     let oauth_extension_layer = match req.extensions().get::<Option<Oauth2Layer>>() {
         None => {
             tracing::error!("failed to find oauth2 extension layer");
@@ -651,7 +853,6 @@ pub async fn auth_oauth2(
     // during code exchange when they hit our callback URL.
     // Using this with a cookie is a little weird, but it'll be encrypted.
     let pkce_cookie = Cookie::build(("pkce_verifier", pkce_verifier.secret().to_owned()))
-        .domain(hostname.clone())
         .path("/")
         .secure(true)
         .http_only(true)
@@ -660,7 +861,6 @@ pub async fn auth_oauth2(
     // Store the csrf state so we can compare the state we get back from Azure
     // when they hit our callback URL.
     let csrf_cookie = Cookie::build(("csrf_state", csrf_state.secret().to_owned()))
-        .domain(hostname.clone())
         .path("/")
         .secure(true)
         .http_only(true)
@@ -675,7 +875,6 @@ pub async fn auth_oauth2(
             .unwrap_or_else(|| req.uri().path())
             .to_string(),
     ))
-    .domain(hostname)
     .path("/")
     .secure(true)
     .http_only(true)
@@ -700,10 +899,13 @@ struct Index {
     version: &'static str,
     agent_upgrade_policy: &'static str,
     log_filter: String,
+    site_explorer_enabled: String,
     create_machines: String,
     carbide_config: CarbideConfig,
     bmc_proxy: String,
 }
+
+impl Base for Index {}
 
 pub async fn root(state: AxumState<Arc<Api>>) -> impl IntoResponse {
     let request = tonic::Request::new(forgerpc::DpuAgentUpgradePolicyRequest { new_policy: None });
@@ -724,6 +926,11 @@ pub async fn root(state: AxumState<Arc<Api>>) -> impl IntoResponse {
         }
     };
 
+    let site_explorer_enabled = state
+        .dynamic_settings
+        .site_explorer_enabled
+        .load(Ordering::Relaxed)
+        .to_string();
     let create_machines = state
         .dynamic_settings
         .create_machines
@@ -742,6 +949,7 @@ pub async fn root(state: AxumState<Arc<Api>>) -> impl IntoResponse {
         version: carbide_version::v!(build_version),
         log_filter: state.log_filter_string(),
         agent_upgrade_policy,
+        site_explorer_enabled,
         create_machines,
         carbide_config: state.runtime_config.redacted(),
         bmc_proxy,
@@ -767,6 +975,7 @@ pub async fn static_data(
         "carbide.css" => {
             (StatusCode::OK, [(CONTENT_TYPE, "text/css")], CARBIDE_CSS).into_response()
         }
+        "tabs.js" => (StatusCode::OK, [(CONTENT_TYPE, "text/javascript")], TABS_JS).into_response(),
         _ => (StatusCode::NOT_FOUND, "No such file").into_response(),
     }
 }

@@ -51,7 +51,7 @@ futures = { workspace = true }
 figment = { features = ["toml"], workspace = true }
 reqwest = { default-features = false, features = [
   "json",
-  "rustls-tls",
+  "rustls",
   "stream",
   "socks",
   "multipart",
@@ -59,8 +59,8 @@ reqwest = { default-features = false, features = [
 eyre = { workspace = true }
 tempfile = { workspace = true }
 duration-str = { workspace = true }
-rand = { workspace = true }
 rcgen = { workspace = true }
+rand = { workspace = true }
 russh = { workspace = true }
 
 # [local-dependencies]
@@ -69,6 +69,7 @@ bmc-mock = { path = "../bmc-mock" }
 carbide-tls = { path = "../tls" }
 carbide-version = { path = "../version" }
 carbide-uuid = { path = "../uuid" }
+carbide-network = { path = "../network" }
 
 [dev-dependencies]
 toml = { workspace = true }

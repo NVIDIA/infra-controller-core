@@ -23,12 +23,14 @@ use db::rack::IdColumn;
 use db::{DatabaseError, ObjectColumnFilter, rack as db_rack};
 use model::StateSla;
 use model::controller_outcome::PersistentStateHandlerOutcome;
-use model::rack::{Rack, RackSearchFilter, RackState, RackValidationState, state_sla};
+use model::rack::{
+    Rack, RackMaintenanceState, RackSearchFilter, RackState, RackValidationState, state_sla,
+};
 use sqlx::PgConnection;
 
 use crate::state_controller::io::StateControllerIO;
-use crate::state_controller::metrics::NoopMetricsEmitter;
 use crate::state_controller::rack::context::RackStateHandlerContextObjects;
+use crate::state_controller::rack::metrics::RackMetricsEmitter;
 
 /// State Controller IO implementation for Racks
 #[derive(Default, Debug)]
@@ -39,7 +41,7 @@ impl StateControllerIO for RackStateControllerIO {
     type ObjectId = RackId;
     type State = Rack;
     type ControllerState = RackState;
-    type MetricsEmitter = NoopMetricsEmitter;
+    type MetricsEmitter = RackMetricsEmitter;
     type ContextObjects = RackStateHandlerContextObjects;
 
     const DB_ITERATION_ID_TABLE_NAME: &'static str = "rack_controller_iteration_ids";
@@ -51,7 +53,7 @@ impl StateControllerIO for RackStateControllerIO {
         &self,
         txn: &mut PgConnection,
     ) -> Result<Vec<Self::ObjectId>, DatabaseError> {
-        db_rack::find_ids(txn, RackSearchFilter {}).await
+        db_rack::find_ids(txn, RackSearchFilter::default()).await
     }
 
     /// Loads a state snapshot from the database
@@ -103,7 +105,14 @@ impl StateControllerIO for RackStateControllerIO {
         new_version: ConfigVersion,
         new_state: &Self::ControllerState,
     ) -> Result<(), DatabaseError> {
-        db::rack_state_history::persist(txn, rack_id, new_state, new_version).await?;
+        db::state_history::persist(
+            txn,
+            db::state_history::StateHistoryTableId::Rack,
+            rack_id,
+            new_state,
+            new_version,
+        )
+        .await?;
         Ok(())
     }
 
@@ -118,25 +127,33 @@ impl StateControllerIO for RackStateControllerIO {
 
     fn metric_state_names(state: &RackState) -> (&'static str, &'static str) {
         match state {
-            RackState::Unknown => ("unknown", ""),
-            RackState::Expected => ("expected", ""),
+            RackState::Created => ("created", ""),
             RackState::Discovering => ("discovering", ""),
-            RackState::Validation { rack_validation } => match rack_validation {
+            RackState::Validating { validating_state } => match validating_state {
                 RackValidationState::Pending => ("validation", "pending"),
-                RackValidationState::InProgress => ("validation", "in_progress"),
-                RackValidationState::Partial => ("validation", "partial"),
-                RackValidationState::FailedPartial => ("validation", "failed_partial"),
-                RackValidationState::Validated => ("validation", "validated"),
-                RackValidationState::Failed => ("validation", "failed"),
+                RackValidationState::InProgress { .. } => ("validation", "in_progress"),
+                RackValidationState::Partial { .. } => ("validation", "partial"),
+                RackValidationState::FailedPartial { .. } => ("validation", "failed_partial"),
+                RackValidationState::Validated { .. } => ("validation", "validated"),
+                RackValidationState::Failed { .. } => ("validation", "failed"),
             },
             RackState::Ready => ("ready", ""),
-            RackState::Maintenance { .. } => ("maintenance", ""),
+            RackState::Maintenance { maintenance_state } => match maintenance_state {
+                RackMaintenanceState::FirmwareUpgrade { .. } => ("maintenance", "firmware_upgrade"),
+                RackMaintenanceState::NVOSUpdate { .. } => ("maintenance", "nvos_update"),
+                RackMaintenanceState::ConfigureNmxCluster { .. } => {
+                    ("maintenance", "configure_nmx_cluster")
+                }
+                RackMaintenanceState::PowerSequence { .. } => ("maintenance", "power_sequence"),
+                RackMaintenanceState::Completed => ("maintenance", "completed"),
+            },
             RackState::Error { .. } => ("error", ""),
             RackState::Deleting => ("deleting", ""),
         }
     }
 
     fn state_sla(
+        &self,
         state: &Versioned<Self::ControllerState>,
         _object_state: &Self::State,
     ) -> StateSla {

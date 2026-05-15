@@ -22,8 +22,9 @@ use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
 pub mod ipmi;
 
+mod auth_router;
 mod bmc_state;
-mod bug;
+pub mod bug;
 mod combined_server;
 mod combined_service;
 mod http;
@@ -36,7 +37,7 @@ mod redfish;
 pub mod test_support;
 pub mod tls;
 
-pub use bmc_state::BmcState;
+pub use bmc_state::{BmcEvent, BmcState};
 pub use combined_server::{CombinedServer, ListenerOrAddress};
 pub use machine_info::{
     DpuFirmwareVersions, DpuMachineInfo, DpuSettings, HostMachineInfo, MachineInfo,
@@ -44,6 +45,10 @@ pub use machine_info::{
 pub use mock_machine_router::{
     BmcCommand, SetSystemPowerError, SetSystemPowerResult, machine_router,
 };
+
+pub const DUMMY_FACTORY_USERNAME: &str = "root";
+pub const DUMMY_FACTORY_PASSWORD: &str = "factory_password";
+pub const DUMMY_FACTORY_DPU_PASSWORD: &str = "0penBmc";
 
 #[derive(Default, Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq)]
 pub enum HostHardwareType {
@@ -60,6 +65,8 @@ pub enum HostHardwareType {
     NvidiaSwitchNd5200Ld,
     #[serde(rename = "nvidia_dgx_h100")]
     NvidiaDgxH100,
+    #[serde(rename = "generic_ami")]
+    GenericAmi,
 }
 
 impl fmt::Display for HostHardwareType {
@@ -71,6 +78,7 @@ impl fmt::Display for HostHardwareType {
             Self::LiteOnPowerShelf => "Lite-On Power Shelf".fmt(f),
             Self::NvidiaSwitchNd5200Ld => "NVIDIA Switch ND5200_LD".fmt(f),
             Self::NvidiaDgxH100 => "NVIDIA DGX H100".fmt(f),
+            Self::GenericAmi => "Generic AMI Server".fmt(f),
         }
     }
 }
@@ -87,6 +95,7 @@ impl HostHardwareType {
             Self::LiteOnPowerShelf => Some(0),
             Self::NvidiaSwitchNd5200Ld => Some(0),
             Self::NvidiaDgxH100 => Some(1),
+            Self::GenericAmi => None,
         }
     }
 }
@@ -208,7 +217,7 @@ pub trait LogService: Send + Sync {
     fn entries(&self, collection: &redfish::Collection<'_>) -> Vec<serde_json::Value>;
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BootOptionKind {
     Disk,
     Network,

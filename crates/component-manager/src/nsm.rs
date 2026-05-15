@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 
 use mac_address::MacAddress;
+use model::component_manager::{FirmwareState, NvSwitchComponent, PowerAction};
 use tonic::transport::Channel;
 use tracing::instrument;
 
@@ -13,7 +14,7 @@ use crate::nv_switch_manager::{
     NvSwitchManager, SwitchComponentResult, SwitchEndpoint, SwitchFirmwareUpdateStatus,
 };
 use crate::proto::nsm;
-use crate::types::{FirmwareState, NvSwitchComponent, PowerAction, parse_mac};
+use crate::types::parse_mac;
 
 #[derive(Debug)]
 pub struct NsmSwitchBackend {
@@ -21,6 +22,8 @@ pub struct NsmSwitchBackend {
 }
 
 impl NsmSwitchBackend {
+    pub const BACKEND_NAME: &str = "nsm";
+
     pub async fn connect(
         url: &str,
         tls: Option<&BackendTlsConfig>,
@@ -58,6 +61,17 @@ fn map_nsm_update_state(state: i32) -> FirmwareState {
     }
 }
 
+fn credentials_to_nsm(creds: &forge_secrets::credentials::Credentials) -> nsm::Credentials {
+    match creds {
+        forge_secrets::credentials::Credentials::UsernamePassword { username, password } => {
+            nsm::Credentials {
+                username: username.clone(),
+                password: password.clone(),
+            }
+        }
+    }
+}
+
 /// Builds a single registration request for an endpoint.
 fn build_registration(ep: &SwitchEndpoint) -> nsm::RegisterNvSwitchRequest {
     nsm::RegisterNvSwitchRequest {
@@ -65,13 +79,13 @@ fn build_registration(ep: &SwitchEndpoint) -> nsm::RegisterNvSwitchRequest {
         bmc: Some(nsm::Subsystem {
             mac_address: ep.bmc_mac.to_string(),
             ip_address: ep.bmc_ip.to_string(),
-            credentials: None,
+            credentials: Some(credentials_to_nsm(&ep.bmc_credentials)),
             port: 0,
         }),
         nvos: Some(nsm::Subsystem {
             mac_address: ep.nvos_mac.to_string(),
             ip_address: ep.nvos_ip.to_string(),
-            credentials: None,
+            credentials: Some(credentials_to_nsm(&ep.nvos_credentials)),
             port: 0,
         }),
         rack_id: String::new(),
@@ -131,7 +145,7 @@ async fn register_and_map(
 #[async_trait::async_trait]
 impl NvSwitchManager for NsmSwitchBackend {
     fn name(&self) -> &str {
-        "nsm"
+        Self::BACKEND_NAME
     }
 
     #[instrument(skip(self), fields(backend = "nsm"))]
@@ -325,6 +339,8 @@ impl NvSwitchManager for NsmSwitchBackend {
 
 #[cfg(test)]
 mod tests {
+    use forge_secrets::credentials::Credentials;
+
     use super::*;
 
     #[test]
@@ -400,6 +416,14 @@ mod tests {
             bmc_mac: "AA:BB:CC:DD:EE:01".parse().unwrap(),
             nvos_ip: "10.0.0.2".parse().unwrap(),
             nvos_mac: "AA:BB:CC:DD:EE:02".parse().unwrap(),
+            bmc_credentials: Credentials::UsernamePassword {
+                username: "admin".to_string(),
+                password: "bmc_pass".to_string(),
+            },
+            nvos_credentials: Credentials::UsernamePassword {
+                username: "nvadmin".to_string(),
+                password: "nvos_pass".to_string(),
+            },
         };
         let req = build_registration(&ep);
         assert_eq!(req.vendor, nsm::Vendor::Nvidia as i32);
@@ -407,10 +431,16 @@ mod tests {
         let bmc = req.bmc.as_ref().unwrap();
         assert_eq!(bmc.ip_address, "10.0.0.1");
         assert_eq!(bmc.mac_address, "AA:BB:CC:DD:EE:01");
+        let bmc_creds = bmc.credentials.as_ref().unwrap();
+        assert_eq!(bmc_creds.username, "admin");
+        assert_eq!(bmc_creds.password, "bmc_pass");
 
         let nvos = req.nvos.as_ref().unwrap();
         assert_eq!(nvos.ip_address, "10.0.0.2");
         assert_eq!(nvos.mac_address, "AA:BB:CC:DD:EE:02");
+        let nvos_creds = nvos.credentials.as_ref().unwrap();
+        assert_eq!(nvos_creds.username, "nvadmin");
+        assert_eq!(nvos_creds.password, "nvos_pass");
     }
 
     #[test]

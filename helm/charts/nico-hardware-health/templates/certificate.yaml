@@ -1,0 +1,9 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: nico-hardware-health-certificate
+  namespace: {{ include "nico-hardware-health.namespace" . }}
+  labels:
+    {{- include "nico-hardware-health.labels" . | nindent 4 }}
+spec:
+  {{- include "nico-hardware-health.certificateSpec" (dict "name" "nico-hardware-health-certificate" "cert" .Values.certificate "global" .Values.global "namespace" (include "nico-hardware-health.namespace" .)) | nindent 2 }}

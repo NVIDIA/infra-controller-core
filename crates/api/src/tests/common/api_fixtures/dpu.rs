@@ -20,16 +20,16 @@
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicU32, Ordering};
 
+use carbide_redfish::libredfish::conv::IntoModel;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
-use libredfish::model::oem::nvidia_dpu::NicMode;
 use libredfish::{OData, PCIeDevice};
 use mac_address::MacAddress;
 use model::hardware_info::HardwareInfo;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::site_explorer::{
     Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationError,
-    EndpointExplorationReport, EndpointType, EthernetInterface, Inventory, Manager, PowerState,
-    Service, UefiDevicePath,
+    EndpointExplorationReport, EndpointType, EthernetInterface, Inventory, Manager, NicMode,
+    PowerState, Service, UefiDevicePath,
 };
 use rpc::forge::forge_server::Forge;
 use rpc::{DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo};
@@ -68,6 +68,11 @@ pub struct DpuConfig {
     pub last_exploration_error: Option<EndpointExplorationError>,
     pub override_hosts_uefi_device_path: Option<UefiDevicePath>,
     pub hardware_info_template: HardwareInfoTemplate,
+    /// The `nic_mode` value included in the DPU's `EndpointExplorationReport`.
+    /// Defaults to `Some(NicMode::Dpu)`; tests exercising the auto-correct
+    /// path override this to `Some(NicMode::Nic)` to simulate a DPU whose
+    /// hardware mode doesn't match the operator-declared mode.
+    pub nic_mode: Option<NicMode>,
 }
 
 impl DpuConfig {
@@ -99,6 +104,7 @@ impl Default for DpuConfig {
             last_exploration_error: None,
             override_hosts_uefi_device_path: None,
             hardware_info_template: HardwareInfoTemplate::Default,
+            nic_mode: Some(NicMode::Dpu),
         }
     }
 }
@@ -133,6 +139,7 @@ impl From<DpuConfig> for EndpointExplorationReport {
                     description: Some("Management Network Interface".to_string()),
                     interface_enabled: Some(true),
                     mac_address: Some(value.bmc_mac_address),
+                    link_status: None,
                     uefi_device_path: None,
                 }],
             }],
@@ -143,13 +150,14 @@ impl From<DpuConfig> for EndpointExplorationReport {
                     description: Some("1G DPU OOB network interface".to_string()),
                     interface_enabled: Some(true),
                     mac_address: Some(value.oob_mac_address),
+                    link_status: None,
                     uefi_device_path: None,
                 }],
                 manufacturer: None,
                 model: None,
                 serial_number: Some(value.serial.clone()),
                 attributes: ComputerSystemAttributes {
-                    nic_mode: Some(NicMode::Dpu),
+                    nic_mode: value.nic_mode,
                     is_infinite_boot_enabled: None,
                 },
                 pcie_devices: vec![
@@ -172,7 +180,7 @@ impl From<DpuConfig> for EndpointExplorationReport {
                         slot: None,
                         pcie_functions: None,
                     }
-                    .into(),
+                    .into_model(),
                 ],
                 base_mac: Some(value.host_mac_address.into()),
                 power_state: PowerState::On,

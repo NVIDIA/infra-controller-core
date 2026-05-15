@@ -90,6 +90,7 @@ pub async fn get_reprovisioning_machines(
             FROM machines m
             INNER JOIN machine_interfaces mi ON m.id = mi.attached_dpu_machine_id
             WHERE m.reprovisioning_requested->>'initiator' like $1
+            AND mi.interface_type != 'Bmc'
             AND mi.attached_dpu_machine_id != mi.machine_id;"#;
 
     let result: Vec<DpuMachineUpdate> = sqlx::query_as(query)
@@ -130,7 +131,7 @@ pub async fn get_updated_machines(
             // Skip looking at any machines that are not marked for updates
             if !managed_host
                 .host_snapshot
-                .health_report_overrides
+                .health_reports
                 .merges
                 .get(HOST_UPDATE_HEALTH_REPORT_SOURCE)
                 .is_some_and(|updater_report| {

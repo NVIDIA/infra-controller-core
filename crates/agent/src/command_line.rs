@@ -16,6 +16,7 @@
  */
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
+use std::str::FromStr;
 
 use carbide_network::virtualization::VpcVirtualizationType;
 use carbide_uuid::machine::MachineId;
@@ -46,7 +47,12 @@ pub enum AgentCommand {
     Run(Box<RunOptions>),
 
     #[clap(about = "Detect hardware and exit")]
-    Hardware,
+    Hardware(HardwareOptions),
+
+    #[clap(
+        about = "Init-container entry point: download the root CA cert and snapshot hardware to the shared volume for the main container."
+    )]
+    InitContainer,
 
     #[clap(about = "One-off health check")]
     Health,
@@ -213,6 +219,12 @@ pub struct NvueOptions {
         help = "Full JSON representation of a RoutingProfile (see nvue.rs)."
     )]
     pub ct_routing_profile: Option<String>,
+
+    #[clap(
+        long,
+        help = "BGP password to use with session between the DPU and the TOR"
+    )]
+    pub bgp_leaf_session_password: Option<String>,
 }
 
 #[derive(Parser, Debug)]
@@ -304,6 +316,101 @@ pub struct RunOptions {
                 When set, the agent sends config updates via gRPC instead of running embedded FMDS."
     )]
     pub fmds_grpc_server: Option<String>,
+    #[clap(
+        long,
+        default_value = "container-exec",
+        help = "Set the configuration mode for HBN. Specify \"container-exec\" or \"nvue-rest\".",
+        env = "HBN_CONFIG_MODE"
+    )]
+    pub hbn_config_mode: HbnConfigMode,
+    #[clap(
+        long,
+        default_value = "dpu-os",
+        help = "Set the platform type. Specify \"dpu-os\" or \"containerized\".",
+        env = "AGENT_PLATFORM_TYPE"
+    )]
+    pub agent_platform_type: AgentPlatformType,
+    #[clap(
+        long,
+        help = "Prepend this string to interface names before sending them to the DHCP server",
+        env = "DHCP_SERVER_INTERFACE_PREPEND"
+    )]
+    pub dhcp_server_interface_prepend: Option<String>,
+}
+
+#[derive(Parser, Debug, Clone)]
+pub enum HbnConfigMode {
+    // ContainerExec: The old default, where we use crictl to exec into the HBN container.
+    ContainerExec,
+    // NvueRest: We use the NVUE REST API to manage HBN configuration.
+    NvueRest,
+}
+
+impl HbnConfigMode {
+    pub fn is_container_exec(&self) -> bool {
+        matches!(self, Self::ContainerExec)
+    }
+}
+
+impl FromStr for HbnConfigMode {
+    type Err = eyre::Report;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        use HbnConfigMode::*;
+        match s {
+            "container-exec" => Ok(ContainerExec),
+            "nvue-rest" => Ok(NvueRest),
+            unknown_mode => Err(eyre::eyre!("Unknown HBN config mode \"{unknown_mode}\"")),
+        }
+    }
+}
+
+#[derive(Parser, Debug, Clone)]
+pub enum AgentPlatformType {
+    // DpuOs: The old default, where we're running inside the main DPU OS and
+    // are free to poke any files and containers directly through whatever
+    // method we feel like.
+    DpuOs,
+    // Containerized: Something suitable for DPF, where the agent is running
+    // inside a container with no direct access to the OS resources or any of
+    // the other containers.
+    Containerized,
+    // should "fake DPU" be modeled as a variant here?
+}
+
+impl AgentPlatformType {
+    pub fn is_dpu_os(&self) -> bool {
+        matches!(self, AgentPlatformType::DpuOs)
+    }
+}
+
+impl FromStr for AgentPlatformType {
+    type Err = eyre::Report;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        use AgentPlatformType::*;
+        match s {
+            "dpu-os" => Ok(DpuOs),
+            "containerized" => Ok(Containerized),
+            unknown_type => Err(eyre::eyre!("Unknown platform type \"{unknown_type}\"")),
+        }
+    }
+}
+
+#[derive(Parser, Debug)]
+pub struct HardwareOptions {
+    #[clap(
+        long,
+        help = "Write the hardware output (a JSON-serialized rpc::DiscoveryInfo message) to the specified file"
+    )]
+    pub output_file: Option<PathBuf>,
+    #[clap(
+        long,
+        default_value = "dpu-os",
+        help = "Set the platform type. Specify \"dpu-os\" or \"containerized\".",
+        env = "AGENT_PLATFORM_TYPE"
+    )]
+    pub agent_platform_type: AgentPlatformType,
 }
 
 #[derive(Parser, Debug)]
@@ -343,5 +450,88 @@ pub struct DuppetOptions {
 impl Options {
     pub fn load() -> Self {
         Self::parse()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_platform_type_parses_all_valid_values() {
+        assert!(matches!(
+            "dpu-os".parse::<AgentPlatformType>().unwrap(),
+            AgentPlatformType::DpuOs
+        ));
+        assert!(matches!(
+            "containerized".parse::<AgentPlatformType>().unwrap(),
+            AgentPlatformType::Containerized
+        ));
+    }
+
+    #[test]
+    fn test_platform_type_rejects_unknown_value() {
+        let err = "banana".parse::<AgentPlatformType>().unwrap_err();
+        assert!(err.to_string().contains("banana"));
+    }
+
+    #[test]
+    fn test_is_dpu_os_only_true_for_dpu_os() {
+        assert!(AgentPlatformType::DpuOs.is_dpu_os());
+        assert!(!AgentPlatformType::Containerized.is_dpu_os());
+    }
+
+    #[test]
+    fn test_init_container_platform_type_no_longer_accepted() {
+        // Guard against regressing the refactor: `init-container` is now a dedicated
+        // subcommand, not a platform-type value. Callers must use the subcommand instead.
+        let err = "init-container".parse::<AgentPlatformType>().unwrap_err();
+        assert!(err.to_string().contains("init-container"));
+    }
+
+    #[test]
+    fn test_init_container_subcommand_parses_without_args() {
+        // The init-container subcommand deliberately takes no flags: the output path
+        // is fixed so devs cannot misroute hardware data away from the main container.
+        let opts = Options::try_parse_from(["forge-dpu-agent", "init-container"]).unwrap();
+        assert!(matches!(opts.cmd, Some(AgentCommand::InitContainer)));
+    }
+
+    #[test]
+    fn test_init_container_subcommand_rejects_output_file_flag() {
+        // If someone tries to pass --output-file (or any other flag), parsing must fail.
+        let result = Options::try_parse_from([
+            "forge-dpu-agent",
+            "init-container",
+            "--output-file",
+            "/tmp/x",
+        ]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_hardware_subcommand_rejects_init_container_platform_type() {
+        // `hardware --agent-platform-type=init-container` used to download certs + save.
+        // That behavior moved to the InitContainer subcommand; this value must now fail.
+        let result = Options::try_parse_from([
+            "forge-dpu-agent",
+            "hardware",
+            "--agent-platform-type=init-container",
+        ]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_hardware_subcommand_accepts_remaining_platform_types() {
+        for value in ["dpu-os", "containerized"] {
+            let opts = Options::try_parse_from([
+                "forge-dpu-agent",
+                "hardware",
+                "--agent-platform-type",
+                value,
+            ])
+            .unwrap_or_else(|e| panic!("hardware --agent-platform-type={value} should parse: {e}"));
+            assert!(matches!(opts.cmd, Some(AgentCommand::Hardware(_))));
+        }
     }
 }

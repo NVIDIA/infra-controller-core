@@ -15,7 +15,11 @@
  * limitations under the License.
  */
 
+mod delete;
+mod force_delete;
+pub mod health_report;
 mod list;
+mod maintenance;
 pub mod metadata;
 mod show;
 
@@ -32,6 +36,23 @@ pub enum Cmd {
     Show(show::Args),
     #[clap(about = "List all power shelves")]
     List(list::Args),
+    #[clap(about = "Delete a power shelf")]
+    Delete(delete::Args),
+    #[clap(about = "Force delete a power shelf and optionally its interfaces")]
+    ForceDelete(force_delete::Args),
     #[clap(subcommand, about = "Manage Power Shelf Metadata")]
     Metadata(metadata::Args),
+    #[clap(
+        subcommand,
+        about = "Request a power shelf maintenance operation (PowerOn / PowerOff)",
+        visible_alias = "fix"
+    )]
+    Maintenance(maintenance::Args),
+    #[dispatch]
+    #[clap(
+        about = "Manage health report sources",
+        subcommand,
+        visible_alias = "hr"
+    )]
+    HealthReport(health_report::Args),
 }

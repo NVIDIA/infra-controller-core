@@ -14,34 +14,38 @@
 		<th>ID</th>
 		<td>{{ id }}</td>
 	</tr>
+	<tr><th>Rack ID</th><td>{{ rack_id|rack_id_link|safe }}</td></tr>
+</table>
+
+{{ lifecycle_detail|safe }}
+
+<h2>Metadata</h2>
+{{ metadata_detail|safe }}
+
+{{ health_detail|safe }}
+
+<h2>Configuration</h2>
+<table class="detailsview">
 	<tr>
-		<th>Rack ID</th>
-		<td>TBD</td>
+		<th>Name</th>
+		<td>{{ name }}</td>
 	</tr>
 	<tr>
-		<th>State</th>
-		<td>
-			{% if controller_state == "Ready" %}
-				<span class="bubble success">{{ controller_state }}</span>
-			{% else if controller_state.to_lowercase().contains("error") || controller_state.to_lowercase().contains("failed") %}
-				<span class="bubble error">{{ controller_state }}</span>
-			{% else %}
-				<span class="bubble">{{ controller_state }}</span>
-			{% endif %}
-		</td>
+		<th>Slot Number</th>
+		<td>{{ slot_number }}</td>
 	</tr>
 	<tr>
-		<th>State Handler Outcome</th>
-		<td>{{ state_reason|controller_state_reason_fmt|safe }}</td>
+		<th>Tray Index</th>
+		<td>{{ tray_index }}</td>
 	</tr>
 	<tr>
-		<th>State Version</th>
-		<td>{{ state_version|config_version|safe }}</td>
+		<th>Enable NMXC</th>
+		<td>{{ enable_nmxc }}</td>
 	</tr>
-	<tr>
-		<th>Time in State</th>
-		<td>{{ time_in_state }}</td>
-	</tr>
+</table>
+
+<h2>Status</h2>
+<table class="detailsview">
 	{% if let Some(power_state) = power_state %}
 	<tr>
 		<th>Power State</th>
@@ -63,42 +67,6 @@
 	</tr>
 	{% endif %}
 </table>
-
-<h2>Configuration</h2>
-<table class="detailsview">
-	<tr>
-		<th>Name</th>
-		<td>{{ name }}</td>
-	</tr>
-	<tr>
-		<th>Location</th>
-		<td>{{ location }}</td>
-	</tr>
-	<tr>
-		<th>Enable NMXC</th>
-		<td>{{ enable_nmxc }}</td>
-	</tr>
-</table>
-
-<h2>Metadata</h2>
-{{ metadata_detail|safe }}
-
-<h2>Health</h2>
-<table class="detailsview">
-	{% if let Some(health_status) = health_status %}
-	<tr>
-		<th>Health Status</th>
-		<td>{{ health_status }}</td>
-	</tr>
-	{% else %}
-	<tr>
-		<td colspan="2" class="text-muted">No health data available.</td>
-	</tr>
-	{% endif %}
-</table>
-
-<h2>Maintenance and Quarantine</h2>
-<p>TBD</p>
 
 <h2>BMC</h2>
 <table class="detailsview">
@@ -147,6 +115,7 @@
 <p>TBD</p>
 
 <h2>History</h2>
-<a href="/admin/switch/{{ id }}/state-history">Open State History</a>
+<a href="/admin/switch/{{ id }}/state-history">Open State History on separate page</a>
+{{ history|safe }}
 
 {% endblock %}

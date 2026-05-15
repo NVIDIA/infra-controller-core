@@ -16,16 +16,19 @@
  */
 
 use ::rpc::admin_cli::CarbideCliError;
+use carbide_utils::has_duplicates;
 use carbide_uuid::rack::RackId;
 use clap::{ArgGroup, Parser};
 use mac_address::MacAddress;
+use rpc::forge::DpuMode;
 use serde::{Deserialize, Serialize};
-use utils::has_duplicates;
 use uuid::Uuid;
 
 /// Patch expected machine (partial update, preserves unprovided fields).
 ///
 /// Only the fields provided in the command will be updated. All other fields remain unchanged.
+/// When `--bmc-ip-address` is used, the merged RPC update runs the same static BMC interface logic
+/// as a full `update_expected_machine` call.
 ///
 /// Examples:
 ///   # Update only SKU, preserve all other fields including metadata
@@ -42,6 +45,8 @@ use uuid::Uuid;
 "chassis_serial_number",
 "fallback_dpu_serial_numbers",
 "sku_id",
+"bmc_ip_address",
+"dpu_mode",
 ])))]
 pub struct Args {
     #[clap(short = 'a', long, help = "BMC MAC Address of the expected machine")]
@@ -135,6 +140,37 @@ pub struct Args {
         help = "DPF enable/disable for this machine. Default is updated as true.",
     )]
     pub dpf_enabled: Option<bool>,
+
+    #[clap(
+        long = "bmc-ip-address",
+        value_name = "BMC_IP_ADDRESS",
+        group = "group",
+        help = "Static BMC IP (updates pre-allocated machine_interface when safe, same as expected switches)"
+    )]
+    pub bmc_ip_address: Option<String>,
+
+    #[clap(
+        long = "bmc-retain-credentials",
+        value_name = "BMC_RETAIN_CREDENTIALS",
+        help = "When true, site-explorer skips BMC password rotation and stores factory-default credentials in Vault as-is"
+    )]
+    pub bmc_retain_credentials: Option<bool>,
+
+    #[clap(
+        long = "dpu-mode",
+        value_name = "DPU_MODE",
+        value_enum,
+        group = "group",
+        help = "Per-host DPU operating mode. `dpu-mode` (default): DPUs are managed by NICo; `nic-mode`: DPU hardware present but treated as a plain NIC; `no-dpu`: no DPU hardware at all. Unset preserves the existing per-host value."
+    )]
+    pub dpu_mode: Option<DpuMode>,
+
+    #[clap(
+        long = "disable-lockdown",
+        value_name = "DISABLE_LOCKDOWN",
+        help = "If true, do not lock down the server as part of lifecycle management within the state machine. If unset or false, preserve the default behavior of locking down the server after configuring the BIOS."
+    )]
+    pub disable_lockdown: Option<bool>,
 }
 
 impl Args {
@@ -158,8 +194,10 @@ impl Args {
             && self.fallback_dpu_serial_numbers.is_none()
             && self.sku_id.is_none()
             && self.rack_id.is_none()
+            && self.bmc_ip_address.is_none()
+            && self.dpu_mode.is_none()
         {
-            return Err(CarbideCliError::GenericError("One of the following options must be specified: bmc-user-name and bmc-password or chassis-serial-number or fallback-dpu-serial-number".to_string()));
+            return Err(CarbideCliError::GenericError("One of the following options must be specified: bmc-user-name and bmc-password or chassis-serial-number or fallback-dpu-serial-number or bmc-ip-address or dpu-mode".to_string()));
         }
         if self
             .fallback_dpu_serial_numbers

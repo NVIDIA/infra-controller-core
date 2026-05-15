@@ -19,16 +19,17 @@
 
 use carbide_uuid::power_shelf::PowerShelfId;
 use config_version::{ConfigVersion, Versioned};
-use db::power_shelf::PowerShelfSearchConfig;
 use db::{DatabaseError, ObjectColumnFilter, power_shelf as db_power_shelf};
-use model::StateSla;
 use model::controller_outcome::PersistentStateHandlerOutcome;
-use model::power_shelf::{PowerShelf, PowerShelfControllerState, state_sla};
+use model::power_shelf::{
+    PowerShelf, PowerShelfControllerState, PowerShelfSearchFilter, state_sla,
+};
+use model::{DeletedFilter, StateSla};
 use sqlx::PgConnection;
 
 use crate::state_controller::io::StateControllerIO;
-use crate::state_controller::metrics::NoopMetricsEmitter;
 use crate::state_controller::power_shelf::context::PowerShelfStateHandlerContextObjects;
+use crate::state_controller::power_shelf::metrics::PowerShelfMetricsEmitter;
 
 /// State Controller IO implementation for PowerShelves
 #[derive(Default, Debug)]
@@ -39,7 +40,7 @@ impl StateControllerIO for PowerShelfStateControllerIO {
     type ObjectId = PowerShelfId;
     type State = PowerShelf;
     type ControllerState = PowerShelfControllerState;
-    type MetricsEmitter = NoopMetricsEmitter;
+    type MetricsEmitter = PowerShelfMetricsEmitter;
     type ContextObjects = PowerShelfStateHandlerContextObjects;
 
     const DB_ITERATION_ID_TABLE_NAME: &'static str = "power_shelf_controller_iteration_ids";
@@ -51,7 +52,16 @@ impl StateControllerIO for PowerShelfStateControllerIO {
         &self,
         txn: &mut PgConnection,
     ) -> Result<Vec<Self::ObjectId>, DatabaseError> {
-        db_power_shelf::list_segment_ids(txn).await
+        db_power_shelf::find_ids(
+            txn,
+            PowerShelfSearchFilter {
+                rack_id: None,
+                deleted: DeletedFilter::Include,
+                controller_state: None,
+                bmc_mac: None,
+            },
+        )
+        .await
     }
 
     /// Loads a state snapshot from the database
@@ -63,7 +73,6 @@ impl StateControllerIO for PowerShelfStateControllerIO {
         let mut power_shelves = db_power_shelf::find_by(
             txn,
             ObjectColumnFilter::One(db::power_shelf::IdColumn, power_shelf_id),
-            PowerShelfSearchConfig::default(),
         )
         .await?;
         if power_shelves.is_empty() {
@@ -118,7 +127,14 @@ impl StateControllerIO for PowerShelfStateControllerIO {
         new_version: ConfigVersion,
         new_state: &Self::ControllerState,
     ) -> Result<(), DatabaseError> {
-        db::power_shelf_state_history::persist(txn, object_id, new_state, new_version).await?;
+        db::state_history::persist(
+            txn,
+            db::state_history::StateHistoryTableId::PowerShelf,
+            object_id,
+            new_state,
+            new_version,
+        )
+        .await?;
         Ok(())
     }
 
@@ -137,12 +153,20 @@ impl StateControllerIO for PowerShelfStateControllerIO {
             PowerShelfControllerState::FetchingData => ("fetching_data", ""),
             PowerShelfControllerState::Configuring => ("configuring", ""),
             PowerShelfControllerState::Ready => ("ready", ""),
+            PowerShelfControllerState::Maintenance { operation } => {
+                let op = match operation {
+                    model::power_shelf::PowerShelfMaintenanceOperation::PowerOn => "power_on",
+                    model::power_shelf::PowerShelfMaintenanceOperation::PowerOff => "power_off",
+                };
+                ("maintenance", op)
+            }
             PowerShelfControllerState::Error { .. } => ("error", ""),
             PowerShelfControllerState::Deleting => ("deleting", ""),
         }
     }
 
     fn state_sla(
+        &self,
         state: &Versioned<Self::ControllerState>,
         _object_state: &Self::State,
     ) -> StateSla {

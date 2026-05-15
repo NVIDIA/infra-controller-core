@@ -14,6 +14,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use std::fs::File;
+use std::io::Cursor;
+use std::os::unix::fs::PermissionsExt;
 use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
@@ -22,14 +25,17 @@ use ::rpc::DiscoveryInfo;
 use ::rpc::forge_tls_client::ForgeClientConfig;
 use ::rpc::machine_discovery::DpuData;
 use carbide_host_support::agent_config::AgentConfig;
-use carbide_host_support::hardware_enumeration::enumerate_hardware;
+use carbide_host_support::hardware_enumeration::{
+    enumerate_and_save_hardware, enumerate_hardware, load_hardware_from_cache,
+};
 use carbide_host_support::registration::register_machine;
-pub use command_line::{AgentCommand, Options, RunOptions, WriteTarget};
+use carbide_utils::arch::CpuArchitecture;
+pub use command_line::{AgentCommand, AgentPlatformType, Options, RunOptions, WriteTarget};
 use eyre::WrapErr;
 use forge_tls::client_config::ClientCert;
 use mac_address::MacAddress;
 use network_monitor::{NetworkPingerType, Ping};
-use utils::models::arch::CpuArchitecture;
+use tokio::fs;
 use version_compare::{Part, Version};
 
 use crate::duppet::{SummaryFormat, SyncOptions};
@@ -81,6 +87,22 @@ pub const FMDS_MINIMUM_HBN_VERSION: &str = "1.5.0-doca2.2.0";
 /// supported configuration path, DPUs running older HBN versions cannot be configured.
 pub const NVUE_MINIMUM_HBN_VERSION: &str = "2.0.0-doca2.5.0";
 
+// Downloads cert (pem) file in case of dpu-agent is running as initcontainer.
+async fn download_cert() -> eyre::Result<()> {
+    let url = "http://carbide-pxe.forge/api/v0/tls/root_ca";
+    let output_file = "/opt/forge/forge_root.pem";
+    let permissions = std::fs::Permissions::from_mode(0o644);
+
+    let response = reqwest::get(url).await?;
+
+    let mut file = File::create(output_file)?;
+    let mut content = Cursor::new(response.bytes().await?);
+    std::io::copy(&mut content, &mut file)?;
+    fs::set_permissions(output_file, permissions).await?;
+
+    Ok(())
+}
+
 pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
     if cmdline.version {
         println!("{}", carbide_version::version!());
@@ -99,6 +121,10 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
             config_path.display().to_string(),
         ),
     };
+    agent
+        .machine_identity
+        .validate()
+        .map_err(|e| eyre::eyre!("invalid [machine-identity] in agent config: {e}"))?;
     tracing::info!("Using configuration from {path}: {agent:?}");
 
     if agent.machine.is_fake_dpu {
@@ -132,7 +158,9 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                 factory_mac_address,
             } = match options.override_machine_id {
                 // Normal case
-                None => register(&agent).await.wrap_err("registration error")?,
+                None => register(&agent, &options.agent_platform_type)
+                    .await
+                    .wrap_err("registration error")?,
                 // Dev / test override
                 Some(machine_id) => Registration {
                     machine_id,
@@ -152,11 +180,29 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
         }
 
         // enumerate hardware and exit
-        Some(AgentCommand::Hardware) => {
-            let info = enumerate_hardware()?;
+        Some(AgentCommand::Hardware(options)) => {
+            let info = match options.agent_platform_type {
+                // Containerized: read the snapshot written by the init container
+                AgentPlatformType::Containerized => load_hardware_from_cache()?,
+                // No container mode, just plain old dpu-agent running as a service on DPU OS.
+                AgentPlatformType::DpuOs => enumerate_hardware()?,
+            };
             let string_result = serde_json::to_string_pretty(&info)?;
-            // print to stderr so it can be re-directed to a file without logs
-            eprintln!("{string_result}");
+            match options.output_file.as_ref() {
+                Some(output_file) => tokio::fs::write(output_file.as_path(), string_result).await?,
+                None => {
+                    // print to stderr so it can be re-directed to a file without logs
+                    eprintln!("{string_result}");
+                }
+            }
+        }
+
+        // Init-container entry point: download cert + snapshot hardware to the shared volume.
+        // Output path is fixed (HW_CACHE_PATH) so the main container can always find it.
+        Some(AgentCommand::InitContainer) => {
+            download_cert().await?;
+            enumerate_and_save_hardware().await?;
+            util::save_host_nameservers()?;
         }
 
         // One-off health check.
@@ -183,7 +229,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
         // One-off network monitor check.
         // dumps JSON-formatted peer DPU network reachability and latency status
         Some(AgentCommand::Network(options)) => {
-            let machine_id = register(&agent)
+            let machine_id = register(&agent, &AgentPlatformType::DpuOs)
                 .await
                 .wrap_err("network check machine registration error")?
                 .machine_id;
@@ -222,8 +268,9 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
             // host_machine_id files, we need to make a registration call to
             // get the machine_id, and a carbide api request to get the
             // host_machine_id.
-            let Registration { machine_id, .. } =
-                register(&agent).await.wrap_err("registration error")?;
+            let Registration { machine_id, .. } = register(&agent, &AgentPlatformType::DpuOs)
+                .await
+                .wrap_err("registration error")?;
 
             let forge_api_server = agent.forge_system.api_server.clone();
             let periodic_config_fetcher = periodic_config_fetcher::PeriodicConfigFetcher::new(
@@ -318,6 +365,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                             vlan_id,
                             network: ip.clone() + "/32",
                             ip,
+                            ipv6_vlan_config: None,
                         }
                     })
                     .collect();
@@ -328,6 +376,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     vpc_virtualization_type: opts.virtualization_type,
                     hbn_version: opts.hbn_version,
                     use_admin_network: true,
+                    tenancy_enabled: true,
                     loopback_ip: opts.loopback_ip.to_string(),
                     secondary_overlay_vtep_ip: opts.secondary_overlay_vtep_ip,
                     internal_bridge_routing_prefix: opts.internal_bridge_routing_prefix,
@@ -365,6 +414,9 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                         .map(|r| serde_json::from_str::<nvue::RoutingProfile>(&r))
                         .transpose()?,
                     network_security_groups,
+                    bgp_leaf_session_password: opts.bgp_leaf_session_password,
+                    is_dpu_os: true,
+                    fmds_gateway_vlan: None,
                 };
                 let contents = nvue::build(conf)?;
                 std::fs::write(&opts.path, contents)?;
@@ -433,9 +485,17 @@ impl HBNDeviceNames {
     }
 }
 
-/// Discover hardware, register DPU with carbide-api, and return machine id
-async fn register(agent: &AgentConfig) -> Result<Registration, eyre::Report> {
-    let mut hardware_info = enumerate_hardware().wrap_err("enumerate_hardware failed")?;
+/// Discover hardware, register DPU with carbide-api, and return machine id.
+async fn register(
+    agent: &AgentConfig,
+    platform_type: &AgentPlatformType,
+) -> Result<Registration, eyre::Report> {
+    let mut hardware_info = match platform_type {
+        AgentPlatformType::Containerized => {
+            load_hardware_from_cache().wrap_err("load_hardware_from_cache failed")
+        }
+        _ => enumerate_hardware().wrap_err("enumerate_hardware failed"),
+    }?;
 
     // Pretend to be a bluefield DPU for local dev.
     // see model/hardware_info.rs::is_dpu
@@ -498,7 +558,9 @@ pub fn pretty_cmd(c: &Command) -> String {
 // and local development only.
 fn fill_fake_dpu_info(hardware_info: &mut DiscoveryInfo) {
     hardware_info.machine_type = CpuArchitecture::Aarch64.to_string(); // old
-    hardware_info.machine_arch = Some(CpuArchitecture::Aarch64.into()); // new
+    hardware_info.machine_arch = Some(rpc::utils::cpu_architecture_to_rpc(
+        CpuArchitecture::Aarch64,
+    )); // new
     if let Some(dmi) = hardware_info.dmi_data.as_mut() {
         dmi.board_name = "BlueField SoC".to_string();
         if dmi.product_serial.is_empty() {

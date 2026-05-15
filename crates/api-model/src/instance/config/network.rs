@@ -19,12 +19,10 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use std::net::IpAddr;
 
-use ::rpc::errors::RpcDataConversionError;
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::network::{NetworkPrefixId, NetworkSegmentId};
 use carbide_uuid::vpc::VpcPrefixId;
 use ipnetwork::IpNetwork;
-use itertools::Itertools;
 use mac_address::MacAddress;
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -37,26 +35,6 @@ use crate::ConfigValidationError;
 pub enum InterfaceFunctionType {
     Physical = 0,
     Virtual = 1,
-}
-
-impl TryFrom<rpc::InterfaceFunctionType> for InterfaceFunctionType {
-    type Error = RpcDataConversionError;
-
-    fn try_from(function_type: rpc::InterfaceFunctionType) -> Result<Self, Self::Error> {
-        Ok(match function_type {
-            rpc::InterfaceFunctionType::Physical => InterfaceFunctionType::Physical,
-            rpc::InterfaceFunctionType::Virtual => InterfaceFunctionType::Virtual,
-        })
-    }
-}
-
-impl From<InterfaceFunctionType> for rpc::InterfaceFunctionType {
-    fn from(function_type: InterfaceFunctionType) -> rpc::InterfaceFunctionType {
-        match function_type {
-            InterfaceFunctionType::Physical => rpc::InterfaceFunctionType::Physical,
-            InterfaceFunctionType::Virtual => rpc::InterfaceFunctionType::Virtual,
-        }
-    }
 }
 
 /// Uniquely identifies an interface on the instance
@@ -120,8 +98,18 @@ pub struct InvalidVirtualFunctionId();
 /// Desired network configuration for an instance
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InstanceNetworkConfig {
-    /// Configures how instance network interfaces are set up
+    /// Configures how instance network interfaces are set up.
+    /// Mutually exclusive with `auto`: when `auto` is true, this
+    /// MUST be empty, When `auto` is false, this lists the explicit
+    /// interface configuration the caller wants applied.
     pub interfaces: Vec<InstanceInterfaceConfig>,
+
+    /// When true, NICO (or potentially some pluggable SDN backend) will
+    /// auto-resolve the instance's network interfaces from the host's
+    /// HostInband network segments. Only valid for instances on zero-DPU
+    /// hosts (well, no DPU, *or* DPU in NIC mode).
+    #[serde(default)]
+    pub auto: bool,
 }
 
 /// Struct to store instance network config updated request with current config.
@@ -154,12 +142,14 @@ impl InstanceNetworkConfig {
                     )),
                     ip_addrs: HashMap::default(),
                     requested_ip_addr: None,
+                    ipv6_interface_config: None,
                     interface_prefixes: HashMap::default(),
                     network_segment_gateways: HashMap::default(),
                     host_inband_mac_address: None,
                     device_locator: None,
                     internal_uuid: uuid::Uuid::nil(),
                 }],
+                auto: false,
             }
         } else {
             Self {
@@ -174,6 +164,7 @@ impl InstanceNetworkConfig {
                         )),
                         ip_addrs: HashMap::default(),
                         requested_ip_addr: None,
+                        ipv6_interface_config: None,
                         interface_prefixes: HashMap::default(),
                         network_segment_gateways: HashMap::default(),
                         host_inband_mac_address: None,
@@ -181,6 +172,7 @@ impl InstanceNetworkConfig {
                         internal_uuid: uuid::Uuid::nil(),
                     })
                     .collect(),
+                auto: false,
             }
         }
     }
@@ -197,12 +189,14 @@ impl InstanceNetworkConfig {
                 network_details: Some(NetworkDetails::VpcPrefixId(vpc_prefix_id)),
                 ip_addrs: HashMap::default(),
                 requested_ip_addr: None,
+                ipv6_interface_config: None,
                 interface_prefixes: HashMap::default(),
                 network_segment_gateways: HashMap::default(),
                 host_inband_mac_address: None,
                 device_locator: None,
                 internal_uuid: uuid::Uuid::nil(),
             }],
+            auto: false,
         }
     }
 
@@ -337,6 +331,7 @@ impl InstanceNetworkConfig {
                     // to trigger postgres table constraints.  For now, the existing implementation
                     // gap is being maintained, and both will need to be resolved together.
                     x.network_details == interface.network_details
+                        && x.ipv6_interface_config == interface.ipv6_interface_config
                 } else if interface.network_segment_id.is_some() {
                     x.network_segment_id == interface.network_segment_id
                 } else {
@@ -357,6 +352,7 @@ impl InstanceNetworkConfig {
                 // TODO: Zero DPU changes.
                 interface.ip_addrs = existing_interface.ip_addrs.clone();
                 interface.requested_ip_addr = existing_interface.requested_ip_addr;
+                interface.ipv6_interface_config = existing_interface.ipv6_interface_config.clone();
                 interface.interface_prefixes = existing_interface.interface_prefixes.clone();
                 interface.network_segment_gateways =
                     existing_interface.network_segment_gateways.clone();
@@ -376,232 +372,6 @@ impl InstanceNetworkConfig {
     /// instance sees an overlay network.
     pub fn is_host_inband(&self) -> bool {
         self.interfaces.iter().all(|i| i.is_host_inband())
-    }
-}
-
-#[derive(PartialEq)]
-enum VFAllocationType {
-    // Only physical interface is defined. No virtual function is defined.
-    None,
-    // Cloud is sending valid virtual function id.
-    Cloud,
-    // Cloud is sending None for virtual function id. This bis possible in older versions.
-    Carbide,
-}
-
-type DeviceVFIdsMap =
-    HashMap<(Option<String>, u32), Vec<(rpc::InterfaceFunctionType, Option<u32>)>>;
-
-fn validate_virtual_function_ids_and_get_allocation_method(
-    interfaces: &[rpc::InstanceInterfaceConfig],
-) -> Result<VFAllocationType, RpcDataConversionError> {
-    let mut device_vf_ids: DeviceVFIdsMap = HashMap::new();
-
-    // Create grouping based on device and device_instance.
-    interfaces.iter().for_each(|x| {
-        device_vf_ids
-            .entry((x.device.clone(), x.device_instance))
-            .or_default()
-            .push((x.function_type(), x.virtual_function_id))
-    });
-
-    let all_vf_ids = device_vf_ids
-        .values()
-        .flatten()
-        .filter(|x| x.0 == rpc::InterfaceFunctionType::Virtual)
-        .collect_vec();
-
-    if all_vf_ids.is_empty() {
-        // Only Physical interfaces are mentioned.
-        return Ok(VFAllocationType::None);
-    }
-
-    if all_vf_ids.iter().all(|x| x.1.is_none()) {
-        // Virtual function ids are not yet implemented at cloud.
-        return Ok(VFAllocationType::Carbide);
-    }
-
-    if all_vf_ids.iter().any(|x| x.1.is_none()) {
-        // At least one None and one valid virtual_function_id is given. Mix of both is not allowed.
-        return Err(RpcDataConversionError::InvalidValue(
-            "Mix of VF".to_string(),
-            "Mix of valid virtual_function_id and None is found.".to_string(),
-        ));
-    }
-
-    for vf_info in device_vf_ids.values() {
-        let vf_ids = vf_info
-            .iter()
-            .filter_map(|(ft, vf_id)| {
-                if let rpc::InterfaceFunctionType::Virtual = ft {
-                    Some(*vf_id)
-                } else {
-                    None
-                }
-            })
-            .flatten()
-            .collect_vec();
-
-        if vf_ids.is_empty() {
-            // Only physical interfaces are provided.
-            // Nothing to validate for this device and device_instance.
-            continue;
-        }
-
-        // Check for duplicate VF ids.
-        let vf_ids_set = vf_ids.iter().collect::<HashSet<&u32>>();
-        if vf_ids.len() != vf_ids_set.len() {
-            return Err(RpcDataConversionError::InvalidValue(
-                "Duplicate VFs".to_string(),
-                "Duplicate VF IDs detected.".to_string(),
-            ));
-        }
-    }
-
-    // All device and device_instance's VF IDs are validated.
-    Ok(VFAllocationType::Cloud)
-}
-
-impl TryFrom<rpc::InstanceNetworkConfig> for InstanceNetworkConfig {
-    type Error = RpcDataConversionError;
-
-    fn try_from(config: rpc::InstanceNetworkConfig) -> Result<Self, Self::Error> {
-        // try_from for interfaces:
-        let mut assigned_vfs_map: HashMap<(Option<String>, u32), u8> = HashMap::default();
-        let mut interfaces = Vec::with_capacity(config.interfaces.len());
-        // Either all virtual ids for VF are None, or all should have some valid values.
-        // virtual_function_id can not be repeated.
-
-        let allocation_type =
-            validate_virtual_function_ids_and_get_allocation_method(&config.interfaces)?;
-        for iface in config.interfaces.into_iter() {
-            let rpc_iface_type = rpc::InterfaceFunctionType::try_from(iface.function_type)
-                .map_err(|_| {
-                    RpcDataConversionError::InvalidInterfaceFunctionType(iface.function_type)
-                })?;
-            let iface_type = InterfaceFunctionType::try_from(rpc_iface_type).map_err(|_| {
-                RpcDataConversionError::InvalidInterfaceFunctionType(iface.function_type)
-            })?;
-
-            let function_id = match iface_type {
-                InterfaceFunctionType::Physical => InterfaceFunctionId::Physical {},
-                InterfaceFunctionType::Virtual => {
-                    // Note that this might overflow if the RPC call delivers more than
-                    // 256 VFs. However that's ok - the `InstanceNetworkConfig.validate()`
-                    // call will declare those configs as invalid later on anyway.
-                    // We mainly don't want to crash here.
-                    InterfaceFunctionId::Virtual {
-                        id: if allocation_type == VFAllocationType::Carbide {
-                            let assigned_vfs = assigned_vfs_map
-                                .entry((iface.device.clone(), iface.device_instance))
-                                .or_insert(0);
-                            let id = *assigned_vfs;
-                            *assigned_vfs = assigned_vfs.saturating_add(1);
-                            id
-                        } else {
-                            // Already validated.
-                            iface.virtual_function_id.unwrap_or_default() as u8
-                        },
-                    }
-                }
-            };
-
-            // If network_details is present, that gets precedence and we'll pull the network_segment_id from that
-            // if it's a NetworkSegment.
-            let (network_details, network_segment_id) = if let Some(x) = iface.network_details {
-                let nd: NetworkDetails = x.try_into()?;
-                let ns_id = match nd {
-                    NetworkDetails::NetworkSegment(network_segment_id) => Some(network_segment_id),
-                    NetworkDetails::VpcPrefixId(_uuid) => None,
-                };
-
-                (Some(nd), ns_id)
-            } else {
-                // If network_details wasn't set, then the caller is required to
-                // send network_segment_id.
-                // This is old model. Let's use network segment id as such.
-                // TODO: This should be removed in future.
-                let ns_id =
-                    iface
-                        .network_segment_id
-                        .ok_or(RpcDataConversionError::MissingArgument(
-                            "InstanceInterfaceConfig::network_segment_id",
-                        ))?;
-
-                // And then we'll populate network_details from that as well.
-                (Some(NetworkDetails::NetworkSegment(ns_id)), Some(ns_id))
-            };
-
-            if iface.ip_address.is_some()
-                && matches!(network_details, Some(NetworkDetails::NetworkSegment(..)))
-            {
-                return Err(RpcDataConversionError::InvalidArgument(
-                    "explicit IP requests are only supported for VPC prefixes".to_string(),
-                ));
-            };
-
-            let device_locator = iface.device.map(|device| DeviceLocator {
-                device,
-                device_instance: iface.device_instance as usize,
-            });
-
-            interfaces.push(InstanceInterfaceConfig {
-                function_id,
-                network_segment_id,
-                network_details,
-                ip_addrs: HashMap::default(),
-                requested_ip_addr: iface
-                    .ip_address
-                    .map(|i| i.parse::<IpAddr>())
-                    .transpose()
-                    .map_err(|e| RpcDataConversionError::InvalidIpAddress(e.to_string()))?,
-                interface_prefixes: HashMap::default(),
-                network_segment_gateways: HashMap::new(),
-                host_inband_mac_address: None,
-                device_locator,
-                internal_uuid: uuid::Uuid::new_v4(),
-            });
-        }
-
-        Ok(Self { interfaces })
-    }
-}
-
-impl TryFrom<InstanceNetworkConfig> for rpc::InstanceNetworkConfig {
-    type Error = RpcDataConversionError;
-
-    fn try_from(config: InstanceNetworkConfig) -> Result<rpc::InstanceNetworkConfig, Self::Error> {
-        let mut interfaces = Vec::with_capacity(config.interfaces.len());
-        for iface in config.interfaces.into_iter() {
-            let function_type = iface.function_id.function_type();
-
-            // Update network segment id based on network details.
-            let network_details: Option<rpc::forge::instance_interface_config::NetworkDetails> =
-                iface.network_details.map(|x| x.into());
-            let network_segment_id = iface.network_segment_id;
-
-            let (device, device_instance) = match iface.device_locator {
-                Some(dl) => (Some(dl.device), dl.device_instance as u32),
-                None => (None, 0),
-            };
-
-            let virtual_function_id = match iface.function_id {
-                InterfaceFunctionId::Physical {} => None,
-                InterfaceFunctionId::Virtual { id } => Some(id as u32),
-            };
-
-            interfaces.push(rpc::InstanceInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::from(function_type) as i32,
-                network_segment_id,
-                network_details,
-                device,
-                device_instance,
-                virtual_function_id,
-                ip_address: iface.requested_ip_addr.map(|i| i.to_string()),
-            });
-        }
-
-        Ok(rpc::InstanceNetworkConfig { interfaces })
     }
 }
 
@@ -690,35 +460,6 @@ pub enum NetworkDetails {
     VpcPrefixId(VpcPrefixId),
 }
 
-impl From<NetworkDetails> for rpc::forge::instance_interface_config::NetworkDetails {
-    fn from(value: NetworkDetails) -> Self {
-        match value {
-            NetworkDetails::NetworkSegment(network_segment_id) => {
-                rpc::forge::instance_interface_config::NetworkDetails::SegmentId(network_segment_id)
-            }
-            NetworkDetails::VpcPrefixId(uuid) => {
-                rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId(uuid)
-            }
-        }
-    }
-}
-
-impl TryFrom<rpc::forge::instance_interface_config::NetworkDetails> for NetworkDetails {
-    fn try_from(
-        value: rpc::forge::instance_interface_config::NetworkDetails,
-    ) -> Result<Self, Self::Error> {
-        Ok(match value {
-            rpc::forge::instance_interface_config::NetworkDetails::SegmentId(ns_id) => {
-                NetworkDetails::NetworkSegment(ns_id)
-            }
-            rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId(vpc_prefix_id) => {
-                NetworkDetails::VpcPrefixId(vpc_prefix_id)
-            }
-        })
-    }
-
-    type Error = RpcDataConversionError;
-}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Hash, Default)]
 pub struct DeviceLocator {
     pub device: String,
@@ -728,6 +469,13 @@ impl Display for DeviceLocator {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}/{}", self.device, self.device_instance)
     }
+}
+
+/// IPv6 dual-stack configuration for an instance interface.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Ipv6InterfaceConfig {
+    pub vpc_prefix_id: VpcPrefixId,
+    pub requested_ip_addr: Option<std::net::Ipv6Addr>,
 }
 
 /// The configuration that a customer desires for an instances network interface
@@ -751,9 +499,13 @@ pub struct InstanceInterfaceConfig {
     )]
     pub ip_addrs: HashMap<NetworkPrefixId, IpAddr>,
 
-    /// IP address allocation that was explicitly requested by a caller
-    /// from the VPC prefix of the interface.
+    /// IP address allocation that was explicitly requested by a caller from the VPC prefix of the interface.
     pub requested_ip_addr: Option<IpAddr>,
+
+    /// Optional IPv6 dual-stack configuration. When set alongside a
+    /// VpcPrefixId in network_details, both prefixes are allocated to a single segment.
+    #[serde(rename = "ipv6")]
+    pub ipv6_interface_config: Option<Ipv6InterfaceConfig>,
 
     /// The interface-specific prefix allocation we carved out from each
     /// network prefix for this interface (e.g. in FNN we might carve out
@@ -929,6 +681,7 @@ mod tests {
             network_segment_id: Some(network_segment_id),
             ip_addrs,
             requested_ip_addr,
+            ipv6_interface_config: None,
             interface_prefixes,
             network_segment_gateways,
             host_inband_mac_address: None,
@@ -939,7 +692,7 @@ mod tests {
         let serialized = serde_json::to_string(&interface).unwrap();
         assert_eq!(
             serialized,
-            r#"{"function_id":{"type":"physical"},"network_details":null,"network_segment_id":"91609f10-c91d-470d-a260-6293ea0c1200","ip_addrs":{"91609f10-c91d-470d-a260-6293ea0c1201":"192.168.1.2"},"requested_ip_addr":"192.168.1.2","interface_prefixes":{"91609f10-c91d-470d-a260-6293ea0c1201":"192.168.1.2/32"},"network_segment_gateways":{},"host_inband_mac_address":null,"device_locator":null,"internal_uuid":"37c3dc65-9aef-4439-b7ca-d532a0a41d7f"}"#
+            r#"{"function_id":{"type":"physical"},"network_details":null,"network_segment_id":"91609f10-c91d-470d-a260-6293ea0c1200","ip_addrs":{"91609f10-c91d-470d-a260-6293ea0c1201":"192.168.1.2"},"requested_ip_addr":"192.168.1.2","ipv6":null,"interface_prefixes":{"91609f10-c91d-470d-a260-6293ea0c1201":"192.168.1.2/32"},"network_segment_gateways":{},"host_inband_mac_address":null,"device_locator":null,"internal_uuid":"37c3dc65-9aef-4439-b7ca-d532a0a41d7f"}"#
         );
 
         assert_eq!(
@@ -965,6 +718,7 @@ mod tests {
                     network_segment_id: Some(network_segment_id),
                     ip_addrs: HashMap::default(),
                     requested_ip_addr: None,
+                    ipv6_interface_config: None,
                     interface_prefixes: HashMap::default(),
                     network_segment_gateways: HashMap::default(),
                     host_inband_mac_address: None,
@@ -975,97 +729,10 @@ mod tests {
             })
             .collect();
 
-        InstanceNetworkConfig { interfaces }
-    }
-
-    #[test]
-    fn assign_ids_from_rpc_config_pf_only() {
-        let config = rpc::InstanceNetworkConfig {
-            interfaces: vec![rpc::InstanceInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::Physical as _,
-                network_segment_id: Some(NetworkSegmentId::from(BASE_SEGMENT_ID)),
-                network_details: None,
-                device: None,
-                device_instance: 0u32,
-                virtual_function_id: None,
-                ip_address: None,
-            }],
-        };
-
-        let netconfig: InstanceNetworkConfig = config.try_into().unwrap();
-        assert_eq!(
-            netconfig.interfaces,
-            &[InstanceInterfaceConfig {
-                function_id: InterfaceFunctionId::Physical {},
-                network_segment_id: Some(BASE_SEGMENT_ID.into()),
-                ip_addrs: HashMap::new(),
-                requested_ip_addr: None,
-                interface_prefixes: HashMap::new(),
-                network_segment_gateways: HashMap::new(),
-                host_inband_mac_address: None,
-                network_details: Some(NetworkDetails::NetworkSegment(BASE_SEGMENT_ID.into()),),
-                device_locator: None,
-                internal_uuid: netconfig.interfaces.first().unwrap().internal_uuid,
-            }]
-        );
-    }
-
-    #[test]
-    fn assign_ids_from_rpc_config_pf_and_vf() {
-        let mut interfaces = vec![rpc::InstanceInterfaceConfig {
-            function_type: rpc::InterfaceFunctionType::Physical as _,
-            network_segment_id: Some(BASE_SEGMENT_ID.into()),
-            network_details: None,
-            device: None,
-            device_instance: 0u32,
-            virtual_function_id: None,
-            ip_address: None,
-        }];
-        for vfid in INTERFACE_VFID_MIN..=INTERFACE_VFID_MAX {
-            interfaces.push(rpc::InstanceInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::Virtual as _,
-                network_segment_id: Some(offset_segment_id(vfid + 1)),
-                network_details: None,
-                device: None,
-                device_instance: 0u32,
-                virtual_function_id: None,
-                ip_address: None,
-            });
+        InstanceNetworkConfig {
+            interfaces,
+            auto: false,
         }
-
-        let config = rpc::InstanceNetworkConfig { interfaces };
-        let netconfig: InstanceNetworkConfig = config.try_into().unwrap();
-        let mut netconf_interfaces_iter = netconfig.interfaces.iter();
-
-        let mut expected_interfaces = vec![InstanceInterfaceConfig {
-            function_id: InterfaceFunctionId::Physical {},
-            network_segment_id: Some(BASE_SEGMENT_ID.into()),
-            ip_addrs: HashMap::new(),
-            requested_ip_addr: None,
-            interface_prefixes: HashMap::new(),
-            network_segment_gateways: HashMap::new(),
-            host_inband_mac_address: None,
-            network_details: Some(NetworkDetails::NetworkSegment(BASE_SEGMENT_ID.into())),
-            device_locator: None,
-            internal_uuid: netconf_interfaces_iter.next().unwrap().internal_uuid,
-        }];
-
-        for vfid in INTERFACE_VFID_MIN..=INTERFACE_VFID_MAX {
-            let segment_id = offset_segment_id(vfid + 1);
-            expected_interfaces.push(InstanceInterfaceConfig {
-                function_id: InterfaceFunctionId::Virtual { id: vfid },
-                network_segment_id: Some(segment_id),
-                ip_addrs: HashMap::new(),
-                requested_ip_addr: None,
-                interface_prefixes: HashMap::new(),
-                network_segment_gateways: HashMap::new(),
-                host_inband_mac_address: None,
-                network_details: Some(NetworkDetails::NetworkSegment(segment_id)),
-                device_locator: None,
-                internal_uuid: netconf_interfaces_iter.next().unwrap().internal_uuid,
-            });
-        }
-        assert_eq!(netconfig.interfaces, &expected_interfaces[..]);
     }
 
     #[test]
@@ -1106,154 +773,5 @@ mod tests {
         config.interfaces[0].network_segment_id = Some(DUPLICATE_SEGMENT_ID.into());
         config.interfaces[1].network_segment_id = Some(DUPLICATE_SEGMENT_ID.into());
         assert!(config.validate(true).is_err());
-    }
-
-    fn get_rpc_instance_network_config() -> Vec<rpc::InstanceInterfaceConfig> {
-        vec![
-            rpc::InstanceInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::Physical as i32,
-                network_segment_id: None,
-                virtual_function_id: None,
-                network_details: Some(
-                    rpc::forge::instance_interface_config::NetworkDetails::SegmentId(
-                        offset_segment_id(0),
-                    ),
-                ),
-                device: None,
-                device_instance: 0u32,
-                ip_address: None,
-            },
-            rpc::InstanceInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::Virtual as i32,
-                network_segment_id: None,
-                virtual_function_id: Some(0),
-                network_details: Some(
-                    rpc::forge::instance_interface_config::NetworkDetails::SegmentId(
-                        offset_segment_id(1),
-                    ),
-                ),
-                device: None,
-                device_instance: 0u32,
-                ip_address: None,
-            },
-            rpc::InstanceInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::Virtual as i32,
-                network_segment_id: None,
-                virtual_function_id: Some(1),
-                network_details: Some(
-                    rpc::forge::instance_interface_config::NetworkDetails::SegmentId(
-                        offset_segment_id(2),
-                    ),
-                ),
-                device: None,
-                device_instance: 0u32,
-                ip_address: None,
-            },
-            rpc::InstanceInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::Virtual as i32,
-                network_segment_id: None,
-                virtual_function_id: Some(2),
-                network_details: Some(
-                    rpc::forge::instance_interface_config::NetworkDetails::SegmentId(
-                        offset_segment_id(3),
-                    ),
-                ),
-                device: None,
-                device_instance: 0u32,
-                ip_address: None,
-            },
-        ]
-    }
-
-    #[test]
-    fn test_validate_virtual_function_ids() {
-        let interfaces = get_rpc_instance_network_config();
-
-        let network_config = rpc::InstanceNetworkConfig { interfaces };
-        let network_config: InstanceNetworkConfig = network_config.try_into().unwrap();
-
-        let vf_ids = network_config.interfaces.iter().filter_map(|x| {
-            if let InterfaceFunctionId::Virtual { id } = x.function_id {
-                Some(id)
-            } else {
-                None
-            }
-        });
-
-        let vf_ids = vf_ids.sorted().collect_vec();
-
-        // All VF ids should be present after converting.
-        let expected = vec![0, 1, 2];
-        assert_eq!(expected, vf_ids);
-    }
-
-    #[test]
-    fn test_validate_virtual_function_ids_missing_1() {
-        let mut interfaces = get_rpc_instance_network_config();
-        interfaces.remove(2);
-
-        let network_config = rpc::InstanceNetworkConfig { interfaces };
-        let network_config: InstanceNetworkConfig = network_config.try_into().unwrap();
-
-        let vf_ids = network_config.interfaces.iter().filter_map(|x| {
-            if let InterfaceFunctionId::Virtual { id } = x.function_id {
-                Some(id)
-            } else {
-                None
-            }
-        });
-
-        let vf_ids = vf_ids.sorted().collect_vec();
-
-        // Since vf_id: 1 is removed, it should not be present in the parsed config.
-        let expected = vec![0, 2];
-        assert_eq!(expected, vf_ids);
-    }
-
-    #[test]
-    fn test_validate_virtual_function_ids_only_physical() {
-        let mut interfaces = get_rpc_instance_network_config();
-        interfaces = vec![interfaces[0].clone()];
-
-        let network_config = rpc::InstanceNetworkConfig { interfaces };
-        let network_config: InstanceNetworkConfig = network_config.try_into().unwrap();
-
-        let vf_ids = network_config
-            .interfaces
-            .iter()
-            .filter_map(|x| {
-                if let InterfaceFunctionId::Virtual { id } = x.function_id {
-                    Some(id)
-                } else {
-                    None
-                }
-            })
-            .collect_vec();
-
-        assert!(vf_ids.is_empty());
-    }
-
-    #[test]
-    fn test_validate_virtual_function_ids_duplicate() {
-        let mut interfaces = get_rpc_instance_network_config();
-        interfaces[2].virtual_function_id = Some(0);
-
-        let network_config = rpc::InstanceNetworkConfig { interfaces };
-        let network_config: Result<InstanceNetworkConfig, RpcDataConversionError> =
-            network_config.try_into();
-
-        assert!(network_config.is_err());
-    }
-
-    #[test]
-    fn test_validate_virtual_function_ids_mix() {
-        let mut interfaces = get_rpc_instance_network_config();
-        interfaces[2].virtual_function_id = None;
-
-        let network_config = rpc::InstanceNetworkConfig { interfaces };
-        let network_config: Result<InstanceNetworkConfig, RpcDataConversionError> =
-            network_config.try_into();
-
-        assert!(network_config.is_err());
     }
 }

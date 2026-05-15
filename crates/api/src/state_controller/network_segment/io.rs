@@ -93,7 +93,7 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
         _object_id: &Self::ObjectId,
         state: &Self::State,
     ) -> Result<Versioned<Self::ControllerState>, DatabaseError> {
-        Ok(state.controller_state.clone())
+        Ok(state.status.controller_state.clone())
     }
 
     async fn persist_controller_state(
@@ -121,7 +121,14 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
         new_version: ConfigVersion,
         new_state: &Self::ControllerState,
     ) -> Result<(), DatabaseError> {
-        db::network_segment_state_history::persist(txn, *object_id, new_state, new_version).await?;
+        db::state_history::persist(
+            txn,
+            db::state_history::StateHistoryTableId::NetworkSegment,
+            object_id,
+            new_state,
+            new_version,
+        )
+        .await?;
         Ok(())
     }
 
@@ -154,6 +161,7 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
     }
 
     fn state_sla(
+        &self,
         state: &Versioned<Self::ControllerState>,
         _object_state: &Self::State,
     ) -> StateSla {

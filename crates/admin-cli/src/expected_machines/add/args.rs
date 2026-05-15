@@ -15,21 +15,30 @@
  * limitations under the License.
  */
 
+use std::net::IpAddr;
+
+use carbide_utils::has_duplicates;
 use carbide_uuid::rack::RackId;
 use clap::Parser;
 use mac_address::MacAddress;
 use rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use rpc::forge::{DpuMode, ExpectedHostNic};
 use serde::{Deserialize, Serialize};
-use utils::has_duplicates;
 
+/// `forge-admin-cli expected-machine add` — mirrors expected switch flags; optional
+/// `--bmc-ip-address` forwards to the API static-BMC pre-allocation path.
 #[derive(Parser, Debug, Serialize, Deserialize)]
 pub struct Args {
     #[clap(short = 'a', long, help = "BMC MAC Address of the expected machine")]
     pub bmc_mac_address: MacAddress,
     #[clap(short = 'u', long, help = "BMC username of the expected machine")]
     pub bmc_username: String,
-    #[clap(short = 'p', long, help = "BMC password of the expected machine")]
-    pub bmc_password: String,
+    #[clap(
+        short = 'p',
+        long,
+        help = "BMC password of the expected machine (optional; defaults to empty string if not provided)"
+    )]
+    pub bmc_password: Option<String>,
     #[clap(
         short = 's',
         long,
@@ -84,7 +93,7 @@ pub struct Args {
     #[clap(
         long = "host_nics",
         value_name = "HOST_NICS",
-        help = "Host NICs MAC addresses as JSON",
+        help = "Host NICs as a JSON array of ExpectedHostNic objects (fields: mac_address, nic_type, fixed_ip, fixed_mask, fixed_gateway, primary)",
         action = clap::ArgAction::Append
     )]
     pub host_nics: Option<String>,
@@ -111,6 +120,35 @@ pub struct Args {
         help = "DPF enable/disable for this machine. Default is updated as true.",
     )]
     pub dpf_enabled: Option<bool>,
+
+    #[clap(
+        long = "bmc-ip-address",
+        value_name = "BMC_IP_ADDRESS",
+        help = "Static BMC IP (pre-allocates machine_interface for site explorer, same as expected switches)"
+    )]
+    pub bmc_ip_address: Option<IpAddr>,
+
+    #[clap(
+        long = "bmc-retain-credentials",
+        value_name = "BMC_RETAIN_CREDENTIALS",
+        help = "When true, site-explorer skips BMC password rotation and stores factory-default credentials in Vault as-is"
+    )]
+    pub bmc_retain_credentials: Option<bool>,
+
+    #[clap(
+        long = "dpu-mode",
+        value_name = "DPU_MODE",
+        value_enum,
+        help = "Per-host DPU operating mode. `dpu-mode` (default): DPUs are managed by NICo; `nic-mode`: DPU hardware present but treated as a plain NIC; `no-dpu`: no DPU hardware at all. Unset keeps the site default (site-wide `force_dpu_nic_mode` flag still applies when no per-host value is set)."
+    )]
+    pub dpu_mode: Option<DpuMode>,
+
+    #[clap(
+        long = "disable-lockdown",
+        value_name = "DISABLE_LOCKDOWN",
+        help = "If true, do not lock down the server as part of lifecycle management within the state machine. If unset or false, preserve the default behavior of locking down the server after configuring the BIOS."
+    )]
+    pub disable_lockdown: Option<bool>,
 }
 
 impl Args {
@@ -130,25 +168,17 @@ impl TryFrom<Args> for rpc::forge::ExpectedMachine {
             description: value.meta_description.unwrap_or_default(),
             labels,
         };
+
         let host_nics = value
             .host_nics
-            .map(|s| serde_json::from_str::<Vec<MacAddress>>(&s))
+            .map(|s| serde_json::from_str::<Vec<ExpectedHostNic>>(&s))
             .transpose()?
-            .unwrap_or_default()
-            .into_iter()
-            .map(|mac| rpc::forge::ExpectedHostNic {
-                mac_address: mac.to_string(),
-                nic_type: None,
-                fixed_ip: None,
-                fixed_mask: None,
-                fixed_gateway: None,
-            })
-            .collect();
+            .unwrap_or_default();
 
         Ok(rpc::forge::ExpectedMachine {
             bmc_mac_address: value.bmc_mac_address.to_string(),
             bmc_username: value.bmc_username,
-            bmc_password: value.bmc_password,
+            bmc_password: value.bmc_password.unwrap_or_default(),
             chassis_serial_number: value.chassis_serial_number,
             fallback_dpu_serial_numbers: value.fallback_dpu_serial_numbers.unwrap_or_default(),
             metadata: Some(metadata),
@@ -160,6 +190,14 @@ impl TryFrom<Args> for rpc::forge::ExpectedMachine {
             #[allow(deprecated)]
             dpf_enabled: value.dpf_enabled.unwrap_or_default(),
             is_dpf_enabled: value.dpf_enabled,
+            bmc_ip_address: value.bmc_ip_address.map(|ip| ip.to_string()),
+            bmc_retain_credentials: value.bmc_retain_credentials,
+            dpu_mode: value.dpu_mode.map(|m| m as i32),
+            host_lifecycle_profile: value.disable_lockdown.map(|dl| {
+                rpc::forge::HostLifecycleProfile {
+                    disable_lockdown: Some(dl),
+                }
+            }),
         })
     }
 }

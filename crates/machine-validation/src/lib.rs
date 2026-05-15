@@ -20,6 +20,7 @@ use std::io::Write;
 use std::time::Duration;
 
 use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine_validation::MachineValidationId;
 use errors::MachineValidationError;
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -54,6 +55,17 @@ pub struct MachineValidationFilter {
     pub allowed_tests: Vec<String>,
     pub run_unverfied_tests: Option<bool>,
     pub contexts: Option<Vec<String>>,
+}
+
+impl From<rpc::forge_agent_control_response::MachineValidationFilter> for MachineValidationFilter {
+    fn from(filter: rpc::forge_agent_control_response::MachineValidationFilter) -> Self {
+        Self {
+            tags: filter.tags,
+            allowed_tests: filter.allowed_tests,
+            run_unverfied_tests: filter.run_unverfied_tests,
+            contexts: filter.contexts.map(|contexts| contexts.items),
+        }
+    }
 }
 
 pub struct MachineValidationManager {}
@@ -108,7 +120,7 @@ impl MachineValidationManager {
         platform_name: String,
         options: MachineValidationOptions,
         context: String,
-        uuid: String,
+        validation_id: MachineValidationId,
         machine_validation_filter: MachineValidationFilter,
     ) -> Result<(), MachineValidationError> {
         let mc = MachineValidation { options };
@@ -144,9 +156,7 @@ impl MachineValidationManager {
             })
             .await?;
         let mut run_request = rpc::forge::MachineValidationRunRequest {
-            validation_id: Some(rpc::Uuid {
-                value: uuid.to_owned(),
-            }),
+            validation_id: Some(validation_id),
             ..rpc::forge::MachineValidationRunRequest::default()
         };
         let mut expected_time_duration = 0;
@@ -173,7 +183,7 @@ impl MachineValidationManager {
             machine_id,
             tests,
             context,
-            uuid,
+            validation_id,
             true,
             machine_validation_filter,
         )

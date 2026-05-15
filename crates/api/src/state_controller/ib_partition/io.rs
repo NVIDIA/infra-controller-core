@@ -116,15 +116,14 @@ impl StateControllerIO for IBPartitionStateControllerIO {
         new_version: ConfigVersion,
         new_state: &Self::ControllerState,
     ) -> Result<(), DatabaseError> {
-        let query = "INSERT INTO ib_partition_state_history (partition_id, state, state_version) \
-                     VALUES ($1, $2, $3)";
-        sqlx::query(query)
-            .bind(object_id)
-            .bind(sqlx::types::Json(new_state))
-            .bind(new_version)
-            .execute(txn)
-            .await
-            .map_err(|e| DatabaseError::query(query, e))?;
+        db::state_history::persist(
+            txn,
+            db::state_history::StateHistoryTableId::IbPartition,
+            object_id,
+            new_state,
+            new_version,
+        )
+        .await?;
         Ok(())
     }
 
@@ -147,6 +146,7 @@ impl StateControllerIO for IBPartitionStateControllerIO {
     }
 
     fn state_sla(
+        &self,
         state: &Versioned<Self::ControllerState>,
         _object_state: &Self::State,
     ) -> StateSla {

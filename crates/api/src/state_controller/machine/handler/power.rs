@@ -19,8 +19,8 @@ use chrono::Utc;
 use libredfish::SystemPowerControl;
 use model::machine::ManagedHostStateSnapshot;
 use model::power_manager::{
-    PowerHandlingOutcome, PowerOptions, PowerState, UsablePowerState,
-    are_all_dpus_up_after_power_operation, get_updated_power_options_for_desired_on_state_off,
+    PowerHandlingOutcome, PowerOptions, PowerState, are_all_dpus_up_after_power_operation,
+    get_updated_power_options_for_desired_on_state_off,
     update_power_options_for_desired_on_state_on,
 };
 
@@ -29,6 +29,13 @@ use crate::state_controller::machine::handler::{
     PowerOptionConfig, handler_host_power_control, host_power_state,
 };
 use crate::state_controller::state_handler::{StateHandlerContext, StateHandlerError};
+
+// If power state is Paused and Reset, state machine can't take any decision on it.
+// Ignore power manager with a log and moved to state machine.
+pub enum UsablePowerState {
+    Usable(PowerState),
+    NotUsable(libredfish::PowerState),
+}
 
 // Handle power related stuff and return updated power options.
 pub async fn handle_power(
@@ -105,7 +112,8 @@ pub async fn handle_power_desired_on(
                 );
                 update_done = true;
             }
-            UsablePowerState::Usable(PowerState::PowerManagerDisabled) => { /* Not expected here */
+            UsablePowerState::Usable(PowerState::PowerManagerDisabled) => {
+                tracing::warn!("Unexpected PowerManagerDisabled state from BMC poll");
             }
             UsablePowerState::NotUsable(s) => {
                 tracing::warn!(
@@ -174,15 +182,19 @@ pub async fn get_updated_power_options_desired_off(
         match power_state {
             UsablePowerState::Usable(power_state) => {
                 updated_power_options.last_fetched_power_state = power_state;
+                let cause = if let PowerState::On = power_state {
+                    "Power state is On while expected is Off. Since desired state is Off, not processing any event.".to_string()
+                } else {
+                    "Desired state is Off and actual state is Off.".to_string()
+                };
                 if let PowerState::On = power_state {
-                    let cause = "Power state is On while expected is Off. Since desired state is Off, not processing any event.".to_string();
                     tracing::warn!(cause);
-                    return Ok(PowerHandlingOutcome::new(
-                        Some(updated_power_options),
-                        false,
-                        Some(cause),
-                    ));
                 }
+                return Ok(PowerHandlingOutcome::new(
+                    Some(updated_power_options),
+                    false,
+                    Some(cause),
+                ));
             }
             UsablePowerState::NotUsable(s) => {
                 let cause = format!(
@@ -222,8 +234,8 @@ async fn get_power_state(
         libredfish::PowerState::On | libredfish::PowerState::PoweringOn => {
             UsablePowerState::Usable(PowerState::On)
         }
-        libredfish::PowerState::Paused | libredfish::PowerState::Reset => {
-            UsablePowerState::NotUsable(power_state)
-        }
+        libredfish::PowerState::Paused
+        | libredfish::PowerState::Reset
+        | libredfish::PowerState::Unknown => UsablePowerState::NotUsable(power_state),
     })
 }

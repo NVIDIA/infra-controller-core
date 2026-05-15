@@ -16,6 +16,7 @@
  */
 
 use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine_validation::MachineValidationId;
 use clap::{ArgGroup, Parser};
 
 #[derive(Parser, Debug)]
@@ -40,7 +41,7 @@ pub struct ShowResultsOptions {
     pub machine: Option<MachineId>,
 
     #[clap(short = 'v', long, group = "group", help = "Machine validation id")]
-    pub validation_id: Option<String>,
+    pub validation_id: Option<MachineValidationId>,
 
     #[clap(
         short = 't',

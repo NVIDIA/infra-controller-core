@@ -83,12 +83,14 @@ pub async fn whoami(machine: Machine, state: State<AppState>) -> impl IntoRespon
 }
 
 pub async fn boot(contents: MachineInterface, state: State<AppState>) -> impl IntoResponse {
-    let machine_interface_id = contents.interface_id;
-
     let (template_key, template_data) = match contents.architecture {
         Some(arch) => {
+            // The wrapping `pxe` Tera template (pxe/templates/pxe) consumes:
+            //   - {{ pxe_url }}        -- carbide-pxe URL for cloud-init.
+            //   - {{ static_pxe_url }} -- carbide-pxe URL for /public/blobs.
+            //   - {{ ipxe }}           -- the OS-specific iPXE script body
+            //                             returned by carbide-api.
             let mut template_data = HashMap::new();
-            template_data.insert("interface_id".to_string(), machine_interface_id.to_string());
             template_data.insert("pxe_url".to_string(), state.runtime_config.pxe_url.clone());
 
             if !state.runtime_config.static_pxe_url.is_empty() {
@@ -98,9 +100,9 @@ pub async fn boot(contents: MachineInterface, state: State<AppState>) -> impl In
                 );
             }
 
-            let instructions = RpcContext::get_pxe_instructions(
+            let pxe_response = RpcContext::get_pxe_instructions(
                 arch.into(),
-                machine_interface_id,
+                contents.client_ip,
                 contents.product,
                 &state.runtime_config.internal_api_url,
                 &ForgeClientConfig::new(
@@ -111,18 +113,46 @@ pub async fn boot(contents: MachineInterface, state: State<AppState>) -> impl In
                     }),
                 ),
             )
-            .await
-            .unwrap_or_else(|err| {
-                eprintln!("{err}");
-                format!(
-                    r#"
+            .await;
+
+            // Use URL overrides from the API if present (for external
+            // clients), falling back to global config.
+            let (api_url, pxe_url, static_pxe_url) = match &pxe_response {
+                Ok(resp) => (
+                    resp.api_url_override
+                        .clone()
+                        .unwrap_or_else(|| state.runtime_config.client_facing_api_url.clone()),
+                    resp.pxe_url_override
+                        .clone()
+                        .unwrap_or_else(|| state.runtime_config.pxe_url.clone()),
+                    resp.static_pxe_url_override
+                        .clone()
+                        .unwrap_or_else(|| state.runtime_config.static_pxe_url.clone()),
+                ),
+                Err(_) => (
+                    state.runtime_config.client_facing_api_url.clone(),
+                    state.runtime_config.pxe_url.clone(),
+                    state.runtime_config.static_pxe_url.clone(),
+                ),
+            };
+
+            let instructions = pxe_response
+                .map(|resp| resp.pxe_script)
+                .unwrap_or_else(|err| {
+                    eprintln!("{err}");
+                    format!(
+                        r#"
 echo Failed to fetch custom_ipxe: {err} ||
 exit 101 ||
 "#
-                )
-            })
-            .replace("[api_url]", &state.runtime_config.client_facing_api_url);
+                    )
+                })
+                .replace("[api_url]", &api_url)
+                .replace("[pxe_url]", &pxe_url);
 
+            // Override template URLs for external clients.
+            template_data.insert("pxe_url".to_string(), pxe_url);
+            template_data.insert("static_pxe_url".to_string(), static_pxe_url);
             template_data.insert("ipxe".to_string(), instructions);
 
             ("pxe", template_data)

@@ -17,7 +17,11 @@
 
 use std::sync::Arc;
 
+use carbide_ib_fabric::ib::IBFabricManager;
+use carbide_ipmi::IPMITool;
+use carbide_redfish::libredfish::RedfishClientPool;
 use db::db_read::PgPoolReader;
+use forge_secrets::credentials::CredentialManager;
 use libredfish::Redfish;
 use librms::RmsApi;
 use model::machine::Machine;
@@ -26,9 +30,8 @@ use sqlx::PgPool;
 
 use crate::cfg::file::CarbideConfig;
 use crate::dpa::handler::DpaInfo;
-use crate::ib::IBFabricManager;
-use crate::ipmitool::IPMITool;
-use crate::redfish::RedfishClientPool;
+use crate::rack::rms_client::SwitchSystemImageRmsClient;
+use crate::state_controller::external_service_error::redfish_client_creation_error;
 use crate::state_controller::state_handler::StateHandlerError;
 
 /// Services that are accessible to all statehandlers within carbide-core
@@ -60,6 +63,13 @@ pub struct CommonStateHandlerServices {
 
     /// Rack Manager Service client
     pub rms_client: Option<Arc<dyn RmsApi>>,
+
+    /// Shared client for switch system image RPCs that are not yet exposed through
+    /// librms::RmsApi.
+    pub switch_system_image_rms_client: Option<Arc<dyn SwitchSystemImageRmsClient>>,
+
+    /// Credential manager (Vault) for fetching BMC credentials
+    pub credential_manager: Arc<dyn CredentialManager>,
 }
 
 impl CommonStateHandlerServices {
@@ -67,9 +77,9 @@ impl CommonStateHandlerServices {
         &self,
         machine: &Machine,
     ) -> Result<Box<dyn Redfish>, StateHandlerError> {
-        Ok(self
-            .redfish_client_pool
+        self.redfish_client_pool
             .create_client_from_machine(machine, &self.db_pool)
-            .await?)
+            .await
+            .map_err(redfish_client_creation_error)
     }
 }

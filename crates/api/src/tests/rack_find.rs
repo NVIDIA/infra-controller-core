@@ -41,16 +41,18 @@ async fn test_find_rack_by_id(pool: sqlx::PgPool) {
         .unwrap();
     drop(txn);
 
-    let rack_ids = env
+    // Check the returned list of rack ids is what we expect.
+    let rack_ids: Vec<RackId> = env
         .api
-        .find_rack_ids(tonic::Request::new(rpc::forge::RackSearchFilter {}))
+        .find_rack_ids(tonic::Request::new(rpc::forge::RackSearchFilter::default()))
         .await
         .unwrap()
         .into_inner()
         .rack_ids;
     assert_eq!(rack_ids, vec![rack_id1.clone(), rack_id2.clone()]);
 
-    let racks = env
+    // Find the first Rack by its id; check core fields.
+    let racks: Vec<rpc::forge::Rack> = env
         .api
         .find_racks_by_ids(tonic::Request::new(rpc::forge::RacksByIdsRequest {
             rack_ids: vec![rack_id1.clone()],
@@ -61,8 +63,25 @@ async fn test_find_rack_by_id(pool: sqlx::PgPool) {
         .racks;
     assert_eq!(racks.len(), 1);
     assert_eq!(racks[0].id, Some(rack_id1));
+    assert_eq!(racks[0].rack_state, "Created");
+    assert_eq!(
+        racks[0]
+            .status
+            .as_ref()
+            .unwrap()
+            .lifecycle
+            .as_ref()
+            .unwrap()
+            .state,
+        r#"{"state":"created"}"#
+    );
+    assert!(racks[0].updated.is_some());
+    assert!(racks[0].created.is_some());
+    assert!(racks[0].deleted.is_none());
+    assert!(!racks[0].version.is_empty());
 
-    let racks = env
+    // Find the second Rack by its id; check core fields.
+    let racks: Vec<rpc::forge::Rack> = env
         .api
         .find_racks_by_ids(tonic::Request::new(rpc::forge::RacksByIdsRequest {
             rack_ids: vec![rack_id2.clone()],
@@ -73,4 +92,20 @@ async fn test_find_rack_by_id(pool: sqlx::PgPool) {
         .racks;
     assert_eq!(racks.len(), 1);
     assert_eq!(racks[0].id, Some(rack_id2));
+    assert_eq!(racks[0].rack_state, "Created");
+    assert_eq!(
+        racks[0]
+            .status
+            .as_ref()
+            .unwrap()
+            .lifecycle
+            .as_ref()
+            .unwrap()
+            .state,
+        r#"{"state":"created"}"#
+    );
+    assert!(racks[0].updated.is_some());
+    assert!(racks[0].created.is_some());
+    assert!(racks[0].deleted.is_none());
+    assert!(!racks[0].version.is_empty());
 }

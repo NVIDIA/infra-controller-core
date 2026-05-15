@@ -28,11 +28,14 @@ use crate::crds::bfbs_generated::BFB;
 use crate::crds::dpudeployments_generated::DPUDeployment;
 use crate::crds::dpuflavors_generated::DPUFlavor;
 use crate::crds::dpuserviceconfigurations_generated::DPUServiceConfiguration;
+use crate::crds::dpuserviceinterfaces_generated::DPUServiceInterface;
+use crate::crds::dpuservicenads_generated::DPUServiceNAD;
 use crate::crds::dpuservicetemplates_generated::DPUServiceTemplate;
 use crate::error::DpfError;
 use crate::repository::{
     BfbRepository, DpfOperatorConfigRepository, DpuDeploymentRepository, DpuFlavorRepository,
-    DpuServiceConfigurationRepository, DpuServiceTemplateRepository, K8sConfigRepository,
+    DpuServiceConfigurationRepository, DpuServiceInterfaceRepository, DpuServiceNADRepository,
+    DpuServiceTemplateRepository, K8sConfigRepository,
 };
 use crate::types::*;
 
@@ -57,6 +60,8 @@ struct InitializationMock {
     deployments: Arc<DashMap<String, DPUDeployment>>,
     service_templates: Arc<DashMap<String, DPUServiceTemplate>>,
     service_configs: Arc<DashMap<String, DPUServiceConfiguration>>,
+    nads: Arc<DashMap<String, DPUServiceNAD>>,
+    service_interfaces: Arc<DashMap<String, DPUServiceInterface>>,
     configs: Arc<DashMap<String, BTreeMap<String, String>>>,
     secrets: Arc<DashMap<String, BTreeMap<String, Vec<u8>>>>,
 }
@@ -182,6 +187,50 @@ impl DpuServiceConfigurationRepository for InitializationMock {
     ) -> Result<DPUServiceConfiguration, DpfError> {
         self.service_configs.insert(resource_key(c), c.clone());
         Ok(c.clone())
+    }
+}
+
+#[async_trait]
+impl DpuServiceNADRepository for InitializationMock {
+    async fn get(&self, name: &str, ns: &str) -> Result<Option<DPUServiceNAD>, DpfError> {
+        Ok(self.nads.get(&ns_key(ns, name)).map(|r| r.clone()))
+    }
+    async fn list(&self, ns: &str) -> Result<Vec<DPUServiceNAD>, DpfError> {
+        let prefix = format!("{}/", ns);
+        Ok(self
+            .nads
+            .iter()
+            .filter(|entry| entry.key().starts_with(&prefix))
+            .map(|entry| entry.value().clone())
+            .collect())
+    }
+    async fn apply(&self, nad: &DPUServiceNAD) -> Result<DPUServiceNAD, DpfError> {
+        self.nads.insert(resource_key(nad), nad.clone());
+        Ok(nad.clone())
+    }
+}
+
+#[async_trait]
+impl DpuServiceInterfaceRepository for InitializationMock {
+    async fn get(&self, name: &str, ns: &str) -> Result<Option<DPUServiceInterface>, DpfError> {
+        Ok(self
+            .service_interfaces
+            .get(&ns_key(ns, name))
+            .map(|r| r.clone()))
+    }
+    async fn list(&self, ns: &str) -> Result<Vec<DPUServiceInterface>, DpfError> {
+        let prefix = format!("{}/", ns);
+        Ok(self
+            .service_interfaces
+            .iter()
+            .filter(|entry| entry.key().starts_with(&prefix))
+            .map(|entry| entry.value().clone())
+            .collect())
+    }
+    async fn apply(&self, iface: &DPUServiceInterface) -> Result<DPUServiceInterface, DpfError> {
+        self.service_interfaces
+            .insert(resource_key(iface), iface.clone());
+        Ok(iface.clone())
     }
 }
 

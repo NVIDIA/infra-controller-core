@@ -724,7 +724,7 @@ async fn get_machine_analysis(
 /// 2. **Carbide-API Logs**: API server logs from Loki (filtered by `k8s_container_name`)
 /// 3. **DPU Agent Logs**: DPU agent service logs from Loki (filtered by `systemd_unit` and `host_machine_id`)
 /// 4. **Health Alerts**: Historical health alerts for the machine within the specified time range
-/// 5. **Health Alert Overrides**: Current alert overrides configured for the machine
+/// 5. **Health Report Entries**: Current health report entries configured for the machine
 /// 6. **Site Controller Details**: BMC/Redfish exploration data including:
 ///    - BMC IP and MAC addresses
 ///    - Systems, Managers, and Chassis information
@@ -755,7 +755,7 @@ async fn get_machine_analysis(
 /// - `carbide_api_logs.txt` - API server logs
 /// - `dpu_agent_logs_<machine_id>.txt` - DPU agent service logs
 /// - `health_alerts.json` - Health alerts history
-/// - `health_alert_overrides.json` - Active alert overrides
+/// - `health_alert_overrides.json` - Active health report entries
 /// - `site_controller_details.json` - BMC/Redfish exploration data
 /// - `machine_info.json` - Machine state and validation data
 /// - `metadata.txt` - Summary and Grafana links
@@ -882,11 +882,11 @@ pub async fn handle_debug_bundle(
         .unwrap_or(0);
     println!("   Alerts: {} records collected", alert_count);
 
-    println!("\nFetching health alert overrides...");
-    let alert_overrides = get_alert_overrides(api_client, &debug_bundle.host_id).await?;
+    println!("\nFetching health report entries...");
+    let alert_entries = get_alert_entries(api_client, &debug_bundle.host_id).await?;
     println!(
-        "   Overrides: {} overrides collected",
-        alert_overrides.overrides.len()
+        "   Entries: {} entries collected",
+        alert_entries.health_report_entries.len()
     );
 
     println!("\nFetching site controller details...");
@@ -919,8 +919,8 @@ pub async fn handle_debug_bundle(
             .unwrap_or(0)
     );
     println!(
-        "   Health Alert Overrides: {} overrides",
-        alert_overrides.overrides.len()
+        "   Health Report Entries: {} entries",
+        alert_entries.health_report_entries.len()
     );
     println!("   Site Controller Details: Collected");
     println!("   Machine State Information: Collected");
@@ -929,7 +929,7 @@ pub async fn handle_debug_bundle(
         host_logs.len() + carbide_api_logs.len() + dpu_agent_logs.len()
     );
 
-    // Create ZIP file with logs, health alerts, health alert overrides, site controller details, and machine info
+    // Create ZIP file with logs, health alerts, health report entries, site controller details, and machine info
     println!("\nCreating ZIP file...");
     create_debug_bundle_zip(
         &debug_bundle,
@@ -941,7 +941,7 @@ pub async fn handle_debug_bundle(
         &dpu_batch_links,
         loki_uid.as_deref(),
         &health_alerts,
-        &alert_overrides,
+        &alert_entries,
         &site_controller_analysis,
         &machine_analysis,
     )?;
@@ -1007,7 +1007,7 @@ async fn get_health_alerts(
     api_client: &ApiClient,
     host_id: &str,
     time_range: &TimeRange,
-) -> CarbideCliResult<::rpc::forge::MachineHealthHistories> {
+) -> CarbideCliResult<::rpc::forge::HealthHistories> {
     use std::str::FromStr;
 
     use carbide_uuid::machine::MachineId;
@@ -1042,11 +1042,11 @@ async fn get_health_alerts(
     Ok(response)
 }
 
-/// Collect alert overrides for a machine (current state)
-async fn get_alert_overrides(
+/// Collect health report entries for a machine (current state)
+async fn get_alert_entries(
     api_client: &ApiClient,
     host_id: &str,
-) -> CarbideCliResult<::rpc::forge::ListHealthReportOverrideResponse> {
+) -> CarbideCliResult<::rpc::forge::ListHealthReportResponse> {
     use std::str::FromStr;
 
     use carbide_uuid::machine::MachineId;
@@ -1056,12 +1056,8 @@ async fn get_alert_overrides(
         CarbideCliError::GenericError(format!("Invalid machine ID '{}': {}", host_id, e))
     })?;
 
-    // Call API to get current overrides
-    let response = api_client
-        .0
-        .list_health_report_overrides(machine_id)
-        .await
-        .map_err(CarbideCliError::ApiInvocationError)?;
+    // Call API to get current health report entries
+    let response = api_client.machine_list_health_reports(machine_id).await?;
 
     Ok(response)
 }
@@ -1362,8 +1358,8 @@ impl<'a> ZipBundleCreator<'a> {
         carbide_batch_links: &[(String, String, usize, String)],
         dpu_batch_links: &[(String, String, usize, String)],
         loki_uid: Option<&str>,
-        health_alerts: &::rpc::forge::MachineHealthHistories,
-        alert_overrides: &::rpc::forge::ListHealthReportOverrideResponse,
+        health_alerts: &::rpc::forge::HealthHistories,
+        alert_entries: &::rpc::forge::ListHealthReportResponse,
         site_controller_analysis: &SiteControllerAnalysis,
         machine_analysis: &MachineAnalysis,
     ) -> CarbideCliResult<String> {
@@ -1390,7 +1386,7 @@ impl<'a> ZipBundleCreator<'a> {
             options,
         )?;
         self.add_alerts_json(&mut zip, health_alerts, options)?;
-        self.add_alert_overrides_json(&mut zip, alert_overrides, options)?;
+        self.add_alert_entries_json(&mut zip, alert_entries, options)?;
         self.add_site_controller_analysis_json(&mut zip, site_controller_analysis, options)?;
         self.add_machine_analysis_json(&mut zip, machine_analysis, options)?;
         self.add_metadata(
@@ -1403,7 +1399,7 @@ impl<'a> ZipBundleCreator<'a> {
             dpu_batch_links,
             loki_uid,
             health_alerts,
-            alert_overrides,
+            alert_entries,
             site_controller_analysis,
             machine_analysis,
             options,
@@ -1414,7 +1410,7 @@ impl<'a> ZipBundleCreator<'a> {
 
         println!("ZIP created: {filepath}");
         println!(
-            "Files: host_logs_{}.txt ({} logs), carbide_api_logs.txt ({} logs), dpu_agent_logs_{}.txt ({} logs), health_alerts.json ({} records), health_alert_overrides.json ({} overrides), site_controller_details.json, machine_info.json, metadata.txt",
+            "Files: host_logs_{}.txt ({} logs), carbide_api_logs.txt ({} logs), dpu_agent_logs_{}.txt ({} logs), health_alerts.json ({} records), health_alert_overrides.json ({} entries), site_controller_details.json, machine_info.json, metadata.txt",
             self.config.host_id,
             host_logs.len(),
             carbide_logs.len(),
@@ -1425,7 +1421,7 @@ impl<'a> ZipBundleCreator<'a> {
                 .get(&self.config.host_id)
                 .map(|h| h.records.len())
                 .unwrap_or(0),
-            alert_overrides.overrides.len()
+            alert_entries.health_report_entries.len()
         );
 
         Ok(filepath)
@@ -1436,7 +1432,7 @@ impl<'a> ZipBundleCreator<'a> {
         zip: &mut ZipWriter<File>,
         filename: &str,
         logs: &[LogEntry],
-        options: FileOptions,
+        options: FileOptions<()>,
     ) -> CarbideCliResult<()> {
         zip.start_file(filename, options).map_err(|e| {
             CarbideCliError::GenericError(format!("Failed to create file {filename}: {e}"))
@@ -1450,8 +1446,8 @@ impl<'a> ZipBundleCreator<'a> {
     fn add_alerts_json(
         &self,
         zip: &mut ZipWriter<File>,
-        health_alerts: &::rpc::forge::MachineHealthHistories,
-        options: FileOptions,
+        health_alerts: &::rpc::forge::HealthHistories,
+        options: FileOptions<()>,
     ) -> CarbideCliResult<()> {
         zip.start_file("health_alerts.json", options).map_err(|e| {
             CarbideCliError::GenericError(format!("Failed to create health_alerts.json: {e}"))
@@ -1517,11 +1513,11 @@ impl<'a> ZipBundleCreator<'a> {
         Ok(())
     }
 
-    fn add_alert_overrides_json(
+    fn add_alert_entries_json(
         &self,
         zip: &mut ZipWriter<File>,
-        alert_overrides: &::rpc::forge::ListHealthReportOverrideResponse,
-        options: FileOptions,
+        alert_entries: &::rpc::forge::ListHealthReportResponse,
+        options: FileOptions<()>,
     ) -> CarbideCliResult<()> {
         zip.start_file("health_alert_overrides.json", options)
             .map_err(|e| {
@@ -1533,10 +1529,10 @@ impl<'a> ZipBundleCreator<'a> {
         // Build JSON using serde_json::json! macro
         let json_output = serde_json::json!({
             "summary": {
-                "total_overrides": alert_overrides.overrides.len()
+                "total_overrides": alert_entries.health_report_entries.len()
             },
-            "overrides": alert_overrides.overrides.iter().map(|override_entry| {
-                let mode_str = match override_entry.mode {
+            "overrides": alert_entries.health_report_entries.iter().map(|entry| {
+                let mode_str = match entry.mode {
                     1 => "Merge",
                     2 => "Replace",
                     _ => "Unknown"
@@ -1544,7 +1540,7 @@ impl<'a> ZipBundleCreator<'a> {
 
                 serde_json::json!({
                     "mode": mode_str,
-                    "report": override_entry.report.as_ref().map(|report| {
+                    "report": entry.report.as_ref().map(|report| {
                         serde_json::json!({
                             "source": &report.source,
                             "alerts": report.alerts.iter().map(|alert| {
@@ -1569,7 +1565,7 @@ impl<'a> ZipBundleCreator<'a> {
 
         // Write pretty-formatted JSON to ZIP
         let json_string = serde_json::to_string_pretty(&json_output).map_err(|e| {
-            CarbideCliError::GenericError(format!("Failed to serialize overrides to JSON: {e}"))
+            CarbideCliError::GenericError(format!("Failed to serialize entries to JSON: {e}"))
         })?;
 
         write!(zip, "{}", json_string)?;
@@ -1580,7 +1576,7 @@ impl<'a> ZipBundleCreator<'a> {
         &self,
         zip: &mut ZipWriter<File>,
         analysis: &SiteControllerAnalysis,
-        options: FileOptions,
+        options: FileOptions<()>,
     ) -> CarbideCliResult<()> {
         zip.start_file("site_controller_details.json", options)
             .map_err(|e| {
@@ -1706,7 +1702,7 @@ impl<'a> ZipBundleCreator<'a> {
         &self,
         zip: &mut ZipWriter<File>,
         analysis: &MachineAnalysis,
-        options: FileOptions,
+        options: FileOptions<()>,
     ) -> CarbideCliResult<()> {
         zip.start_file("machine_info.json", options).map_err(|e| {
             CarbideCliError::GenericError(format!("Failed to create machine_info.json: {e}"))
@@ -1815,11 +1811,11 @@ impl<'a> ZipBundleCreator<'a> {
         carbide_batch_links: &[(String, String, usize, String)],
         dpu_batch_links: &[(String, String, usize, String)],
         loki_uid: Option<&str>,
-        health_alerts: &::rpc::forge::MachineHealthHistories,
-        alert_overrides: &::rpc::forge::ListHealthReportOverrideResponse,
+        health_alerts: &::rpc::forge::HealthHistories,
+        alert_entries: &::rpc::forge::ListHealthReportResponse,
         site_controller_analysis: &SiteControllerAnalysis,
         machine_analysis: &MachineAnalysis,
-        options: FileOptions,
+        options: FileOptions<()>,
     ) -> CarbideCliResult<()> {
         zip.start_file("metadata.txt", options).map_err(|e| {
             CarbideCliError::GenericError(format!("Failed to create metadata file: {e}"))
@@ -1873,15 +1869,15 @@ impl<'a> ZipBundleCreator<'a> {
         writeln!(zip, "  Total Alerts: {}", total_alerts)?;
         writeln!(zip)?;
 
-        // Add Health Alert Overrides Info
-        writeln!(zip, "Health Alert Overrides:")?;
+        // Add Health Report Entries Info
+        writeln!(zip, "Health Report Entries:")?;
         writeln!(
             zip,
-            "  Total Overrides: {}",
-            alert_overrides.overrides.len()
+            "  Total Entries: {}",
+            alert_entries.health_report_entries.len()
         )?;
-        let active_overrides = alert_overrides
-            .overrides
+        let active_entries = alert_entries
+            .health_report_entries
             .iter()
             .filter(|o| {
                 if let Some(ref report) = o.report {
@@ -1891,7 +1887,7 @@ impl<'a> ZipBundleCreator<'a> {
                 }
             })
             .count();
-        writeln!(zip, "  Active Overrides: {}", active_overrides)?;
+        writeln!(zip, "  Active Entries: {}", active_entries)?;
         writeln!(zip)?;
 
         // Add Site Controller Details
@@ -2070,8 +2066,8 @@ fn create_debug_bundle_zip(
     carbide_batch_links: &[(String, String, usize, String)],
     dpu_batch_links: &[(String, String, usize, String)],
     loki_uid: Option<&str>,
-    health_alerts: &::rpc::forge::MachineHealthHistories,
-    alert_overrides: &::rpc::forge::ListHealthReportOverrideResponse,
+    health_alerts: &::rpc::forge::HealthHistories,
+    alert_entries: &::rpc::forge::ListHealthReportResponse,
     site_controller_analysis: &SiteControllerAnalysis,
     machine_analysis: &MachineAnalysis,
 ) -> CarbideCliResult<()> {
@@ -2084,7 +2080,7 @@ fn create_debug_bundle_zip(
         dpu_batch_links,
         loki_uid,
         health_alerts,
-        alert_overrides,
+        alert_entries,
         site_controller_analysis,
         machine_analysis,
     )?;

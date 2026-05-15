@@ -18,7 +18,10 @@
 use std::sync::Arc;
 
 use carbide_uuid::machine::MachineId;
+use carbide_uuid::nvlink::NvLinkDomainId;
+use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::RackId;
+use carbide_uuid::switch::SwitchId;
 use health_report::{
     HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthProbeSuccess,
     HealthReport as CarbideHealthReport, HealthReportConversionError,
@@ -27,6 +30,14 @@ use nv_redfish::resource::Health as BmcHealth;
 
 use crate::endpoint::{BmcAddr, BmcEndpoint, EndpointMetadata};
 use crate::metrics::MetricLabel;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum HealthReportTarget {
+    Machine,
+    PowerShelf,
+    Rack,
+    Switch,
+}
 
 #[derive(Clone, Debug)]
 pub struct EventContext {
@@ -40,7 +51,7 @@ pub struct EventContext {
 impl EventContext {
     pub fn from_endpoint(endpoint: &BmcEndpoint, collector_type: &'static str) -> Self {
         Self {
-            endpoint_key: endpoint.hash_key().into_owned(),
+            endpoint_key: endpoint.key(),
             addr: endpoint.addr.clone(),
             collector_type,
             metadata: endpoint.metadata.clone(),
@@ -59,11 +70,68 @@ impl EventContext {
         }
     }
 
-    pub fn switch_serial(&self) -> Option<&str> {
+    pub fn slot_number(&self) -> Option<i32> {
         match &self.metadata {
-            Some(EndpointMetadata::Switch(switch)) => Some(switch.serial.as_str()),
+            Some(EndpointMetadata::Machine(machine)) => machine.slot_number,
             _ => None,
         }
+    }
+
+    pub fn tray_index(&self) -> Option<i32> {
+        match &self.metadata {
+            Some(EndpointMetadata::Machine(machine)) => machine.tray_index,
+            _ => None,
+        }
+    }
+
+    pub fn nvlink_domain_uuid(&self) -> Option<NvLinkDomainId> {
+        match &self.metadata {
+            Some(EndpointMetadata::Machine(machine)) => machine.nvlink_domain_uuid,
+            _ => None,
+        }
+    }
+
+    pub fn switch_id(&self) -> Option<SwitchId> {
+        match &self.metadata {
+            Some(EndpointMetadata::Switch(switch)) => switch.id,
+            _ => None,
+        }
+    }
+
+    pub fn switch_slot_number(&self) -> Option<i32> {
+        match &self.metadata {
+            Some(EndpointMetadata::Switch(switch)) => switch.slot_number,
+            _ => None,
+        }
+    }
+
+    pub fn switch_tray_index(&self) -> Option<i32> {
+        match &self.metadata {
+            Some(EndpointMetadata::Switch(switch)) => switch.tray_index,
+            _ => None,
+        }
+    }
+
+    pub fn power_shelf_id(&self) -> Option<PowerShelfId> {
+        match &self.metadata {
+            Some(EndpointMetadata::PowerShelf(power_shelf)) => power_shelf.id,
+            _ => None,
+        }
+    }
+
+    pub fn health_report_target(&self) -> Option<HealthReportTarget> {
+        match self.metadata {
+            Some(EndpointMetadata::Machine(_)) => Some(HealthReportTarget::Machine),
+            Some(EndpointMetadata::PowerShelf(_)) => Some(HealthReportTarget::PowerShelf),
+            Some(EndpointMetadata::Switch(_)) => Some(HealthReportTarget::Switch),
+            None => None,
+        }
+    }
+
+    pub fn serial_number(&self) -> Option<&str> {
+        self.metadata
+            .as_ref()
+            .and_then(EndpointMetadata::serial_number)
     }
 
     pub fn rack_id(&self) -> Option<&RackId> {
@@ -128,6 +196,7 @@ pub struct HealthReportAlert {
 #[derive(Clone, Debug)]
 pub struct HealthReport {
     pub source: ReportSource,
+    pub target: Option<HealthReportTarget>,
     pub observed_at: Option<chrono::DateTime<chrono::Utc>>,
     pub successes: Vec<HealthReportSuccess>,
     pub alerts: Vec<HealthReportAlert>,
@@ -138,6 +207,7 @@ pub enum CollectorEvent {
     MetricCollectionStart,
     Metric(Box<SensorHealthData>),
     MetricCollectionEnd,
+    CollectorRemoved,
     Log(Box<LogRecord>),
     Firmware(FirmwareInfo),
     HealthReport(Arc<HealthReport>),
@@ -146,6 +216,7 @@ pub enum CollectorEvent {
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum ReportSource {
     BmcSensors,
+    BmcLeakDetectors,
     TrayLeakDetection,
     RackLeakDetection,
 }
@@ -154,6 +225,7 @@ impl ReportSource {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::BmcSensors => "bmc-sensors",
+            Self::BmcLeakDetectors => "bmc-leak-detectors",
             Self::TrayLeakDetection => "tray-leak-detection",
             Self::RackLeakDetection => "rack-leak-detection",
         }

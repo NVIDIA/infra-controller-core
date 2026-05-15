@@ -53,27 +53,14 @@ fn convert_and_print_into_nice_table(
 
     table.set_titles(row![
         "Rack ID",
-        "Rack Type",
+        "Rack Profile",
         "Name",
         "Description",
         "Labels"
     ]);
 
     for expected_rack in &expected_racks.expected_racks {
-        let labels = expected_rack
-            .metadata
-            .as_ref()
-            .map(|m| {
-                m.labels
-                    .iter()
-                    .map(|label| {
-                        let key = label.key.as_str();
-                        let value = label.value.as_deref().unwrap_or_default();
-                        format!("\"{}:{}\"", key, value)
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
+        let labels = crate::metadata::fmt_labels_as_kv_pairs(expected_rack.metadata.as_ref());
 
         table.add_row(row![
             expected_rack
@@ -81,7 +68,11 @@ fn convert_and_print_into_nice_table(
                 .clone()
                 .map(|r| r.to_string())
                 .unwrap_or_default(),
-            expected_rack.rack_type,
+            expected_rack
+                .rack_profile_id
+                .as_ref()
+                .map(|id| id.to_string())
+                .unwrap_or_default(),
             expected_rack
                 .metadata
                 .as_ref()

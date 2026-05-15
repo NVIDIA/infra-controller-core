@@ -259,6 +259,41 @@ WHERE address=$4 AND version=$5";
     Ok(query_result.rows_affected() > 0)
 }
 
+/// Updates only the last exploration error and latency in an endpoint's report.
+///
+/// This preserves the rest of the last successful exploration report while recording
+/// an exploration failure. Returns `Ok(false)` if the entry had been deleted in the
+/// meantime or otherwise modified. It will not fail for version mismatches.
+pub async fn try_update_last_exploration_error(
+    address: IpAddr,
+    old_version: ConfigVersion,
+    error: &model::site_explorer::EndpointExplorationError,
+    latency: std::time::Duration,
+    txn: &mut PgConnection,
+) -> Result<bool, DatabaseError> {
+    let new_version = old_version.increment();
+    let query = "UPDATE explored_endpoints
+SET version=$1,
+    exploration_report=jsonb_set(
+        jsonb_set(exploration_report, '{LastExplorationError}', $2::jsonb, true),
+        '{LastExplorationLatency}', $3::jsonb, true
+    ),
+    waiting_for_explorer_refresh=true,
+    exploration_requested=false
+WHERE address=$4 AND version=$5";
+    let query_result = sqlx::query(query)
+        .bind(new_version)
+        .bind(sqlx::types::Json(error))
+        .bind(sqlx::types::Json(&latency))
+        .bind(address)
+        .bind(old_version)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    Ok(query_result.rows_affected() > 0)
+}
+
 /// clear_last_known_error clears the last known error in explored_endpoints for the BMC identified by IP
 pub async fn clear_last_known_error(
     address: IpAddr,
@@ -307,6 +342,26 @@ pub async fn set_waiting_for_explorer_refresh(
         "UPDATE explored_endpoints SET waiting_for_explorer_refresh = true WHERE address = $1";
     sqlx::query(query)
         .bind(address)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+    Ok(())
+}
+
+/// Unconditionally set `exploration_requested = true` for a batch of BMC
+/// addresses so the site explorer prioritises them on its next tick.
+/// Addresses without a row in `explored_endpoints` are silently skipped.
+pub async fn request_exploration_for_addresses(
+    addresses: &[IpAddr],
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    if addresses.is_empty() {
+        return Ok(());
+    }
+    let query =
+        "UPDATE explored_endpoints SET exploration_requested = true WHERE address = ANY($1)";
+    sqlx::query(query)
+        .bind(addresses)
         .execute(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
@@ -447,6 +502,60 @@ pub async fn set_preingestion_script_running(
     txn: &mut PgConnection,
 ) -> Result<(), DatabaseError> {
     let state = PreingestionState::ScriptRunning;
+    set_preingestion(address, state, txn).await
+}
+
+pub async fn set_preingestion_bfb_recovery_needed(
+    address: IpAddr,
+    reason: String,
+    host_bmc_ip: IpAddr,
+    pre_copy_powercycle: bool,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    let state = PreingestionState::BfbRecoveryNeeded {
+        reason,
+        host_bmc_ip,
+        pre_copy_powercycle,
+    };
+    set_preingestion(address, state, txn).await
+}
+
+pub async fn set_preingestion_bfb_platform_powercycle(
+    address: IpAddr,
+    host_bmc_ip: IpAddr,
+    phase: model::site_explorer::BfbPlatformPowercyclePhase,
+    post_install: bool,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    let state = PreingestionState::BfbPlatformPowercycle {
+        host_bmc_ip,
+        phase,
+        post_install,
+    };
+    set_preingestion(address, state, txn).await
+}
+
+pub async fn set_preingestion_bfb_copy_in_progress(
+    address: IpAddr,
+    host_bmc_ip: IpAddr,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    let state = PreingestionState::BfbCopyInProgress {
+        started_at: Utc::now(),
+        host_bmc_ip,
+    };
+    set_preingestion(address, state, txn).await
+}
+
+pub async fn set_preingestion_bfb_installation_wait(
+    address: IpAddr,
+    host_bmc_ip: IpAddr,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    let state = PreingestionState::BfbInstallationWait {
+        started_at: Utc::now(),
+        host_bmc_ip,
+    };
     set_preingestion(address, state, txn).await
 }
 

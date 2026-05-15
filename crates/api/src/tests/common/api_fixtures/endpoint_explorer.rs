@@ -18,24 +18,27 @@ use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex};
 
-use libredfish::RoleId;
-use libredfish::model::oem::nvidia_dpu::NicMode;
+use carbide_site_explorer::{EndpointExplorer, SiteExplorationMetrics};
+use libredfish::{PowerState, RoleId, SystemPowerControl};
 use mac_address::MacAddress;
-use model::expected_machine::ExpectedMachine;
-use model::expected_power_shelf::ExpectedPowerShelf;
-use model::expected_switch::ExpectedSwitch;
+use model::expected_entity::ExpectedEntity;
 use model::machine::MachineInterfaceSnapshot;
 use model::site_explorer::{
     EndpointExplorationError, EndpointExplorationReport, InternalLockdownStatus, LockdownStatus,
+    NicMode,
 };
-
-use crate::site_explorer::{EndpointExplorer, SiteExplorationMetrics};
 
 /// EndpointExplorer which returns predefined data
 #[derive(Clone, Default, Debug)]
 pub struct MockEndpointExplorer {
     pub reports:
         Arc<Mutex<HashMap<IpAddr, Result<EndpointExplorationReport, EndpointExplorationError>>>>,
+    pub power_states: Arc<Mutex<HashMap<IpAddr, PowerState>>>,
+    pub redfish_power_control_calls: Arc<Mutex<Vec<(SocketAddr, SystemPowerControl)>>>,
+    /// Records every call to `set_nic_mode` (BMC address + requested target
+    /// mode) so tests can assert the auto-correct path fired with the
+    /// right arguments. Cleared on each `insert_endpoints` reset.
+    pub set_nic_mode_calls: Arc<Mutex<Vec<(SocketAddr, NicMode)>>>,
 }
 
 impl MockEndpointExplorer {
@@ -82,10 +85,8 @@ impl EndpointExplorer for MockEndpointExplorer {
         &self,
         bmc_ip_address: SocketAddr,
         _interface: &MachineInterfaceSnapshot,
-        _expected: Option<&ExpectedMachine>,
-        _expected_power_shelf: Option<&ExpectedPowerShelf>,
-        _expected_switch: Option<&ExpectedSwitch>,
-        _last_report: Option<&EndpointExplorationReport>,
+        _expected: Option<&ExpectedEntity>,
+        _last_error: Option<&EndpointExplorationError>,
         _boot_interface_mac: Option<MacAddress>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
         tracing::info!("Endpoint {bmc_ip_address} is getting explored");
@@ -110,12 +111,30 @@ impl EndpointExplorer for MockEndpointExplorer {
         Ok(())
     }
 
+    async fn redfish_get_power_state(
+        &self,
+        address: SocketAddr,
+        _interface: &MachineInterfaceSnapshot,
+    ) -> Result<libredfish::PowerState, EndpointExplorationError> {
+        Ok(self
+            .power_states
+            .lock()
+            .unwrap()
+            .get(&address.ip())
+            .copied()
+            .unwrap_or(PowerState::On))
+    }
+
     async fn redfish_power_control(
         &self,
-        _address: SocketAddr,
+        address: SocketAddr,
         _interface: &MachineInterfaceSnapshot,
-        _action: libredfish::SystemPowerControl,
+        action: libredfish::SystemPowerControl,
     ) -> Result<(), EndpointExplorationError> {
+        self.redfish_power_control_calls
+            .lock()
+            .unwrap()
+            .push((address, action));
         Ok(())
     }
 
@@ -171,10 +190,14 @@ impl EndpointExplorer for MockEndpointExplorer {
 
     async fn set_nic_mode(
         &self,
-        _address: SocketAddr,
+        address: SocketAddr,
         _interface: &MachineInterfaceSnapshot,
-        _mode: NicMode,
+        mode: NicMode,
     ) -> Result<(), EndpointExplorationError> {
+        self.set_nic_mode_calls
+            .lock()
+            .unwrap()
+            .push((address, mode));
         Ok(())
     }
 
@@ -187,14 +210,6 @@ impl EndpointExplorer for MockEndpointExplorer {
     }
 
     async fn clear_nvram(
-        &self,
-        _bmc_ip_address: SocketAddr,
-        _interface: &MachineInterfaceSnapshot,
-    ) -> Result<(), EndpointExplorationError> {
-        Ok(())
-    }
-
-    async fn copy_bfb_to_dpu_rshim(
         &self,
         _bmc_ip_address: SocketAddr,
         _interface: &MachineInterfaceSnapshot,
@@ -236,12 +251,5 @@ impl EndpointExplorer for MockEndpointExplorer {
         _interface: &MachineInterfaceSnapshot,
     ) -> Result<Option<bool>, EndpointExplorationError> {
         Ok(None)
-    }
-
-    async fn probe_redfish_endpoint(
-        &self,
-        _address: SocketAddr,
-    ) -> Result<(), EndpointExplorationError> {
-        Ok(())
     }
 }

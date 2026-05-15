@@ -38,7 +38,6 @@ pub struct DhcpDiscovery {
 // produce error on carbide_prost_builder::Builder derivation.
 #[derive(carbide_prost_builder::Builder)]
 pub struct VpcCreationRequest {
-    pub name: ::prost::alloc::string::String,
     pub tenant_organization_id: ::prost::alloc::string::String,
     pub tenant_keyset_id: ::core::option::Option<::prost::alloc::string::String>,
     pub network_virtualization_type: ::core::option::Option<i32>,
@@ -46,7 +45,7 @@ pub struct VpcCreationRequest {
     pub metadata: ::core::option::Option<rpc::forge::Metadata>,
     pub network_security_group_id: ::core::option::Option<::prost::alloc::string::String>,
     pub vni: ::core::option::Option<u32>,
-    pub routing_profile_type: ::core::option::Option<i32>,
+    pub routing_profile_type: ::core::option::Option<::prost::alloc::string::String>,
     pub default_nvlink_logical_partition_id:
         ::core::option::Option<::carbide_uuid::nvlink::NvLinkLogicalPartitionId>,
 }
@@ -58,7 +57,6 @@ pub struct VpcCreationRequest {
 pub struct VpcUpdateRequest {
     pub id: ::core::option::Option<::carbide_uuid::vpc::VpcId>,
     pub if_version_match: ::core::option::Option<::prost::alloc::string::String>,
-    pub name: ::prost::alloc::string::String,
     pub metadata: ::core::option::Option<::rpc::forge::Metadata>,
     pub network_security_group_id: ::core::option::Option<::prost::alloc::string::String>,
     pub default_nvlink_logical_partition_id:
@@ -103,7 +101,7 @@ pub struct InstanceConfigUpdateRequest {
 #[derive(carbide_prost_builder::Builder)]
 pub struct InstanceConfig {
     pub tenant: ::core::option::Option<::rpc::forge::TenantConfig>,
-    pub os: ::core::option::Option<::rpc::forge::OperatingSystem>,
+    pub os: ::core::option::Option<::rpc::forge::InstanceOperatingSystemConfig>,
     pub network: ::core::option::Option<rpc::forge::InstanceNetworkConfig>,
     pub infiniband: ::core::option::Option<::rpc::forge::InstanceInfinibandConfig>,
     pub network_security_group_id: ::core::option::Option<::prost::alloc::string::String>,

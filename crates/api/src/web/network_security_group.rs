@@ -29,7 +29,7 @@ use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc};
 use serde::{Deserialize, Deserializer, de};
 
-use super::filters;
+use super::{Base, filters};
 use crate::api::Api;
 
 const DEFAULT_PAGE_RECORD_LIMIT: usize = 100;
@@ -272,11 +272,7 @@ pub async fn show_detail(
     }
     .network_security_groups
     .pop() else {
-        return (
-            StatusCode::NOT_FOUND,
-            "Requested network security group not found",
-        )
-            .into_response();
+        return super::not_found_response(network_security_group_id);
     };
 
     if show_json {
@@ -622,3 +618,6 @@ pub async fn delete(
 
     Redirect::to("/admin/network-security-group").into_response()
 }
+
+impl super::Base for NetworkSecurityGroupShow {}
+impl super::Base for NetworkSecurityGroupDetailDisplay {}

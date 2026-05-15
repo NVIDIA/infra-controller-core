@@ -22,11 +22,13 @@ use std::str::FromStr;
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::{common as rpc_common, forge as rpc};
 use carbide_network::virtualization::VpcVirtualizationType;
+use carbide_utils::arch::CpuArchitecture;
 use carbide_uuid::machine::MachineId;
 use db::{
     DatabaseError, ObjectColumnFilter, dpu_agent_upgrade_policy, network_security_group,
     network_segment,
 };
+use forge_secrets::credentials::{BgpCredentialType, CredentialKey, Credentials};
 use futures_util::future::join_all;
 use itertools::Itertools;
 use model::extension_service::{ExtensionService, ExtensionServiceVersionInfo};
@@ -39,17 +41,30 @@ use model::machine::{InstanceState, LoadSnapshotOptions, ManagedHostState};
 use model::machine_update_module::HOST_UPDATE_HEALTH_PROBE_ID;
 use model::network_segment::NetworkSegmentSearchConfig;
 use tonic::{Request, Response, Status};
-use utils::models::arch::CpuArchitecture;
 
 use crate::api::{Api, log_machine_id, log_request_data};
 use crate::cfg::file::VpcIsolationBehaviorType;
 use crate::handlers::extension_service;
 use crate::handlers::utils::convert_and_log_machine_id;
-use crate::{CarbideError, ethernet_virtualization};
+use crate::{CarbideError, cfg, ethernet_virtualization};
 
 /// vxlan48 is special HBN single vxlan device. It handles networking between machines on the
 /// same subnet. It handles the encapsulation into VXLAN and VNI for cross-host comms.
 const HBN_SINGLE_VLAN_DEVICE: &str = "vxlan48";
+
+/// Consolidates host-level and DPU-level `ManagedHostNetworkConfig` into
+/// the single proto sent to `carbide-dpu-agent`. The host layer
+/// contributes shared fields (e.g. `use_admin_network`); the DPU layer
+/// contributes per-DPU fields (e.g. `loopback_ip`).
+fn build_consolidated_network_config(
+    host_network_config: &model::machine::network::ManagedHostNetworkConfig,
+    dpu_loopback_ip: IpAddr,
+) -> rpc::ManagedHostNetworkConfig {
+    rpc::ManagedHostNetworkConfig {
+        loopback_ip: dpu_loopback_ip.to_string(),
+        quarantine_state: host_network_config.quarantine_state.clone().map(Into::into),
+    }
+}
 
 pub(crate) async fn get_managed_host_network_config_inner(
     api: &Api,
@@ -148,12 +163,12 @@ pub(crate) async fn get_managed_host_network_config_inner(
                     })
             });
 
-    // If there is an instance, the state machine sets all DPUs to be on the tenant network.  But if there are
-    // no interfaces configured for this DPU, then override and put it back on the admin network.  This will
-    // prevent the host from using the DPU at all.
-    let use_admin_network = dpu_snapshot.use_admin_network() || !dpu_has_tenant_interface_config;
+    // If there is an instance, the state machine sets the host to tenant
+    // network. But if no interfaces are configured for this DPU, override
+    // and keep it on admin. This prevents the host from using the DPU at all.
+    let use_admin_network = snapshot.use_admin_network() || !dpu_has_tenant_interface_config;
 
-    let mut network_virtualization_type = VpcVirtualizationType::EthernetVirtualizerWithNvue;
+    let mut network_virtualization_type = VpcVirtualizationType::EthernetVirtualizer;
 
     let mut use_fnn_over_admin_nw = false;
 
@@ -165,6 +180,11 @@ pub(crate) async fn get_managed_host_network_config_inner(
         use_fnn_over_admin_nw = true;
         network_virtualization_type = VpcVirtualizationType::Fnn;
     }
+    let use_vpc_vrf_loopback = api
+        .runtime_config
+        .fnn
+        .as_ref()
+        .is_some_and(|c| c.use_vpc_vrf_loopback);
 
     let booturl_override = if snapshot
         .host_snapshot
@@ -180,11 +200,12 @@ pub(crate) async fn get_managed_host_network_config_inner(
 
     let (admin_interface_rpc, host_interface_id) = ethernet_virtualization::admin_network(
         &mut txn,
-        &snapshot.host_snapshot.id,
+        &snapshot,
         &dpu_snapshot.id,
         use_fnn_over_admin_nw,
         &api.common_pools,
         &booturl_override,
+        use_vpc_vrf_loopback,
     )
     .await?;
 
@@ -246,7 +267,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
                     .fnn
                     .as_ref()
                     .map(|f| {
-                        let Some(profile_type) = vpc.routing_profile_type.map(|t| t.to_string()) else {
+                        let Some(profile_type) = vpc.routing_profile_type else {
                             return Err(CarbideError::Internal{ message: "tenant routing profile type not found in tenant record".to_string()});
                         };
 
@@ -263,17 +284,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
                 None
             };
 
-            // EthernetVirtualizer is treated as EthernetVirtualizerWithNvue — NVUE is
-            // always enabled, and the non-NVUE ETV agent code path has been removed.
-            // In practice the DB decode already maps "etv" -> EthernetVirtualizerWithNvue,
-            // so EthernetVirtualizer shouldn't appear here, but we handle it defensively.
-            network_virtualization_type = match vpc.network_virtualization_type {
-                VpcVirtualizationType::EthernetVirtualizer
-                | VpcVirtualizationType::EthernetVirtualizerWithNvue => {
-                    VpcVirtualizationType::EthernetVirtualizerWithNvue
-                }
-                VpcVirtualizationType::Fnn => VpcVirtualizationType::Fnn,
-            };
+            network_virtualization_type = vpc.network_virtualization_type;
 
             vpc_vni = vpc.status.as_ref().and_then(|v| v.vni.map(|x|x as u32));
 
@@ -354,41 +365,11 @@ pub(crate) async fn get_managed_host_network_config_inner(
 
             let segment_details = segment_details.iter().map(|x|(x.id, x)).collect::<HashMap<_,_>>();
 
-            let Some(segment) = segment_details.get(&network_segment_id) else {
-                return Err(CarbideError::Internal { message: format!(
-                    "Tenant segment id {network_segment_id} is not found in db."
-                ) }.into());
-            };
-
-            let domain = match segment.subdomain_id {
-                Some(domain_id) => {
-                    db::dns::domain::find_by_uuid(txn.as_pgconn(), domain_id)
-                        .await
-                        .map_err(CarbideError::from)?
-                        .ok_or_else(|| CarbideError::NotFoundError {
-                            kind: "domain",
-                            id: domain_id.to_string(),
-                        })?
-                        .name
-                }
-                None => "unknowndomain".to_string(),
-            };
-
-            //Set FQDN
-            let instance_hostname = &instance.config.tenant.hostname;
-            let fqdn: String;
-            if let Some(hostname) = instance_hostname.clone() {
-                fqdn = format!("{hostname}.{domain}");
-            } else {
-                let dashed_ip: String = physical_ip
-                    .to_string()
-                    .split('.')
-                    .collect::<Vec<&str>>()
-                    .join("-");
-                fqdn = format!("{dashed_ip}.{domain}");
-            }
-
-            let tenant_loopback_ip = if VpcVirtualizationType::Fnn == network_virtualization_type {
+            // TODO: VPC loopbacks are currently blocked from being advertised out on the DPU.
+            // This must become per-interface/per-VPC before VPC loopbacks can be allowed out.
+            let tenant_loopback_ip = if VpcVirtualizationType::Fnn == network_virtualization_type
+                && use_vpc_vrf_loopback
+            {
                 let tenant_loopback_ip = db::vpc_dpu_loopback::get_or_allocate_loopback_ip_for_vpc(
                     &api.common_pools,
                     &mut txn,
@@ -420,12 +401,37 @@ pub(crate) async fn get_managed_host_network_config_inner(
                     ) }.into());
                 };
 
+                // Build the FQDN from this interface's segment domain.
+                let domain = match segment.config.subdomain_id {
+                    Some(domain_id) => {
+                        db::dns::domain::find_by_uuid(txn.as_pgconn(), domain_id)
+                            .await
+                            .map_err(CarbideError::from)?
+                            .ok_or_else(|| CarbideError::NotFoundError {
+                                kind: "domain",
+                                id: domain_id.to_string(),
+                            })?
+                            .name
+                    }
+                    None => "unknowndomain".to_string(),
+                };
+                let fqdn = if let Some(hostname) = &instance.config.tenant.hostname {
+                    format!("{hostname}.{domain}")
+                } else {
+                    let dashed_ip = physical_ip
+                        .to_string()
+                        .split('.')
+                        .collect::<Vec<_>>()
+                        .join("-");
+                    format!("{dashed_ip}.{domain}")
+                };
+
                 let tenant_interface =
                     ethernet_virtualization::tenant_network(
                         &mut txn,
                         instance.id,
                         iface,
-                        fqdn.clone(),
+                        fqdn,
                         // DPU agent reads loopback ip only from 0th interface.
                         // function build in nvue.rs
                         tenant_loopback_ip.clone(),
@@ -448,15 +454,10 @@ pub(crate) async fn get_managed_host_network_config_inner(
         }
     };
 
-    let network_config = rpc::ManagedHostNetworkConfig {
-        loopback_ip: loopback_ip.to_string(),
-        quarantine_state: snapshot
-            .host_snapshot
-            .network_config
-            .quarantine_state
-            .clone()
-            .map(Into::into),
-    };
+    let network_config = build_consolidated_network_config(
+        &snapshot.host_snapshot.network_config.value,
+        loopback_ip,
+    );
 
     let asn = if network_virtualization_type == VpcVirtualizationType::Fnn {
         dpu_snapshot.asn.ok_or_else(|| {
@@ -621,7 +622,11 @@ pub(crate) async fn get_managed_host_network_config_inner(
         },
         site_global_vpc_vni: api.runtime_config.site_global_vpc_vni,
         managed_host_config: Some(network_config),
-        managed_host_config_version: dpu_snapshot.network_config.version.version_string(),
+        managed_host_config_version: snapshot
+            .host_snapshot
+            .network_config
+            .version
+            .version_string(),
         use_admin_network,
         admin_interface: Some(admin_interface_rpc),
         tenant_interfaces,
@@ -667,8 +672,16 @@ pub(crate) async fn get_managed_host_network_config_inner(
                 })
         }),
         routing_profile: routing_profile.map(|p| rpc::RoutingProfile {
+            tenant_leak_communities_accepted: p.tenant_leak_communities_accepted,
             leak_default_route_from_underlay: p.leak_default_route_from_underlay,
             leak_tenant_host_routes_to_underlay: p.leak_tenant_host_routes_to_underlay,
+            accepted_leaks_from_underlay: p
+                .accepted_leaks_from_underlay
+                .iter()
+                .map(|l| rpc::PrefixFilterPolicyEntry {
+                    prefix: l.prefix.to_string(),
+                })
+                .collect(),
             route_target_imports: p
                 .route_target_imports
                 .iter()
@@ -720,6 +733,20 @@ pub(crate) async fn get_managed_host_network_config_inner(
             .unwrap_or_default(),
         instance: maybe_instance,
         dpu_extension_services: extension_services,
+        bgp_leaf_session_password: match api.runtime_config.bgp_leaf_session_password.as_ref() {
+            Some(p) => match p {
+                cfg::file::BgpLeafSessionPassword::SiteWide => Some(
+                    get_bgp_password(
+                        &api.credential_manager,
+                        CredentialKey::Bgp {
+                            credential_type: BgpCredentialType::SiteWideLeafPassword,
+                        },
+                    )
+                    .await?,
+                ),
+            },
+            None => None,
+        },
     };
 
     // If this all worked, we shouldn't emit a log line
@@ -823,7 +850,7 @@ pub(crate) async fn record_dpu_network_status(
         obs
     };
 
-    let any_observed_version_changed = match dpu_machine.network_status_observation {
+    let any_observed_version_changed = match dpu_machine.network_status_observation.as_ref() {
         None => true,
         Some(old_observation) => old_observation.any_observed_version_changed(&machine_obs),
     };
@@ -850,10 +877,10 @@ pub(crate) async fn record_dpu_network_status(
     .map_err(|e| CarbideError::internal(e.to_string()))?;
     // We ignore what dpu-agent sends as timestamp and time, and replace
     // it with more accurate information
-    health_report.source = "forge-dpu-agent".to_string();
+    health_report.source = health_report::HealthReport::DPU_AGENT_SOURCE.to_string();
     health_report.observed_at = Some(chrono::Utc::now());
     // Fix the in_alert times based on the previously stored report
-    health_report.update_in_alert_since(dpu_machine.dpu_agent_health_report.as_ref());
+    health_report.update_in_alert_since(dpu_machine.dpu_agent_health_report());
 
     db::machine::update_dpu_agent_health_report(&mut txn, &dpu_machine_id, &health_report).await?;
 
@@ -1162,7 +1189,7 @@ pub(crate) async fn trigger_dpu_reprovisioning(
                 return Err(CarbideError::InvalidArgument("A restart has to be triggered for all DPUs together. Only host_id is accepted for restart operation.".to_string()).into());
             }
 
-            if snapshot.dpu_snapshots.is_empty() {
+            if snapshot.is_zero_dpu() {
                 return Err(CarbideError::InvalidArgument(
                     "Machine has no DPUs, cannot trigger DPU reprovisioning.".to_string(),
                 )
@@ -1240,4 +1267,94 @@ pub(crate) async fn list_dpu_waiting_for_reprovisioning(
         .collect_vec();
 
     Ok(Response::new(rpc::DpuReprovisioningListResponse { dpus }))
+}
+
+/// Get the configured BGP password.
+pub(crate) async fn get_bgp_password(
+    credential_reader: &dyn forge_secrets::credentials::CredentialReader,
+    credential_key: forge_secrets::credentials::CredentialKey,
+) -> Result<String, CarbideError> {
+    let credential = credential_reader
+        .get_credentials(&credential_key)
+        .await
+        .map_err(|e| CarbideError::Internal {
+            message: format!("Could not find the credential: {}", e),
+        })?;
+
+    Ok(match credential {
+        Some(Credentials::UsernamePassword { password, .. }) => password,
+        _ => {
+            return Err(CarbideError::Internal {
+                message: "Could not find BGP credential".to_string(),
+            });
+        }
+    })
+}
+
+#[cfg(test)]
+mod consolidated_network_config_tests {
+    use std::net::Ipv4Addr;
+
+    use model::machine::network::{
+        ManagedHostNetworkConfig, ManagedHostQuarantineMode, ManagedHostQuarantineState,
+    };
+
+    use super::*;
+
+    fn dpu_ip() -> IpAddr {
+        IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))
+    }
+
+    // The DPU layer contributes loopback_ip; an empty host layer leaves
+    // quarantine_state absent.
+    #[test]
+    fn dpu_loopback_ip_carries_through_with_empty_host_layer() {
+        let host = ManagedHostNetworkConfig::default();
+        let consolidated = build_consolidated_network_config(&host, dpu_ip());
+        assert_eq!(consolidated.loopback_ip, "10.0.0.1");
+        assert!(consolidated.quarantine_state.is_none());
+    }
+
+    // The host layer contributes quarantine_state when set; the DPU layer
+    // still owns loopback_ip independently.
+    #[test]
+    fn host_quarantine_state_carries_through_alongside_dpu_loopback() {
+        let host = ManagedHostNetworkConfig {
+            quarantine_state: Some(ManagedHostQuarantineState {
+                reason: Some("test".to_string()),
+                mode: ManagedHostQuarantineMode::BlockAllTraffic,
+            }),
+            ..ManagedHostNetworkConfig::default()
+        };
+        let consolidated = build_consolidated_network_config(&host, dpu_ip());
+        assert_eq!(consolidated.loopback_ip, "10.0.0.1");
+        let qs = consolidated.quarantine_state.expect("quarantine_state");
+        assert_eq!(qs.reason.as_deref(), Some("test"));
+    }
+
+    // Host-layer fields that aren't part of the consolidated proto shape
+    // (loopback_ip on the host, secondary_overlay_vtep_ip, use_admin_network)
+    // do NOT leak into the response -- the consolidator deliberately picks
+    // only quarantine_state from the host layer. Catches accidental changes
+    // to that contract.
+    #[test]
+    fn host_layer_fields_outside_the_consolidated_shape_are_ignored() {
+        let host = ManagedHostNetworkConfig {
+            // loopback_ip on the host's row is meaningless and shouldn't
+            // be served to the DPU agent -- the DPU's own loopback_ip
+            // (passed separately) is what matters.
+            loopback_ip: Some(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 99))),
+            secondary_overlay_vtep_ip: Some(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 100))),
+            // The host-level use_admin_network is reported in a separate
+            // top-level response field, not in this consolidated struct.
+            use_admin_network: Some(false),
+            quarantine_state: None,
+        };
+        let consolidated = build_consolidated_network_config(&host, dpu_ip());
+        assert_eq!(
+            consolidated.loopback_ip, "10.0.0.1",
+            "consolidator must use the dpu_loopback_ip arg, not host.loopback_ip"
+        );
+        assert!(consolidated.quarantine_state.is_none());
+    }
 }

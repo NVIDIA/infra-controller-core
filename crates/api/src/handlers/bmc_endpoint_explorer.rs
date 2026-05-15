@@ -16,15 +16,18 @@
  */
 
 use std::net::SocketAddr;
-use std::time::Duration;
 
 use ::rpc::forge as rpc;
 use carbide_uuid::machine::MachineId;
+use db::WithTransaction;
 use db::machine_interface::find_by_ip;
 use libredfish::RoleId;
 use mac_address::MacAddress;
-use model::machine::machine_id::try_parse_machine_id;
+use model::expected_entity::ExpectedEntity;
+use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{LoadSnapshotOptions, MachineInterfaceSnapshot};
+use model::rpc_conv::machine::machine_id::try_parse_machine_id;
+use model::site_explorer::PreingestionState;
 use sqlx::PgConnection;
 use tokio::net::lookup_host;
 use tonic::{Request, Response, Status};
@@ -449,12 +452,22 @@ pub(crate) async fn explore(
     let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &req).await?;
 
     let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
-    let expected_machine = crate::handlers::expected_machine::query(api, bmc_mac_address).await?;
+
     // TODO(chet): Track down Vinod's Jira to optimize code for
     // existing sites where there is no nvswitch or power shelf.
-    let expected_switch = crate::handlers::expected_switch::query(api, bmc_mac_address).await?;
-    let expected_power_shelf =
-        crate::handlers::expected_power_shelf::query(api, bmc_mac_address).await?;
+    let expected = if let Some(expected_machine) =
+        crate::handlers::expected_machine::query(api, bmc_mac_address).await?
+    {
+        Some(ExpectedEntity::Machine(expected_machine))
+    } else if let Some(expected_switch) =
+        crate::handlers::expected_switch::query(api, bmc_mac_address).await?
+    {
+        Some(ExpectedEntity::Switch(expected_switch))
+    } else {
+        crate::handlers::expected_power_shelf::query(api, bmc_mac_address)
+            .await?
+            .map(ExpectedEntity::PowerShelf)
+    };
 
     // Look up boot_interface_mac from existing explored endpoint if available
     let mut txn = api.txn_begin().await?;
@@ -469,9 +482,7 @@ pub(crate) async fn explore(
         .explore_endpoint(
             bmc_addr,
             &machine_interface,
-            expected_machine.as_ref(),
-            expected_power_shelf.as_ref(),
-            expected_switch.as_ref(),
+            expected.as_ref(),
             None,
             boot_interface_mac,
         )
@@ -553,31 +564,103 @@ pub(crate) async fn copy_bfb_to_dpu_rshim(
     log_request_data(&request);
     let req = request.into_inner();
 
-    let bmc_endpoint_request = match req.ssh_request {
-        Some(ssh_req) => match ssh_req.endpoint_request {
-            Some(bmc_request) => {
-                // Port 22 is the default SSH port--carbide-api assumes port :4443
-                let ip_address: String = if bmc_request.ip_address.contains(':') {
-                    bmc_request.ip_address
-                } else {
-                    format!("{}:22", bmc_request.ip_address)
-                };
-
-                rpc::BmcEndpointRequest {
-                    ip_address,
-                    mac_address: bmc_request.mac_address,
-                }
-            }
-            None => {
-                return Err(CarbideError::MissingArgument("bmc_endpoint_request").into());
-            }
+    let ip_str = match &req.ssh_request {
+        Some(ssh_req) => match &ssh_req.endpoint_request {
+            Some(bmc_request) => bmc_request.ip_address.clone(),
+            None => return Err(CarbideError::MissingArgument("bmc_endpoint_request").into()),
         },
-        None => {
-            return Err(CarbideError::MissingArgument("ssh_request").into());
-        }
+        None => return Err(CarbideError::MissingArgument("ssh_request").into()),
     };
 
-    do_copy_bfb_to_dpu_rshim(api, &bmc_endpoint_request).await?;
+    let dpu_ip: std::net::IpAddr = ip_str
+        .parse()
+        .map_err(|_| CarbideError::InvalidArgument(format!("Invalid DPU IP: {ip_str}")))?;
+
+    if req.host_bmc_ip.is_empty() {
+        return Err(CarbideError::MissingArgument("host_bmc_ip").into());
+    }
+    let host_bmc_ip: std::net::IpAddr = req.host_bmc_ip.parse().map_err(|_| {
+        CarbideError::InvalidArgument(format!("Invalid host BMC IP: {}", req.host_bmc_ip))
+    })?;
+
+    let pre_copy_powercycle = req.pre_copy_powercycle;
+
+    let dpu_in_managed_host =
+        carbide_site_explorer::is_endpoint_in_managed_host(dpu_ip, &api.database_connection)
+            .await
+            .map_err(|e| CarbideError::internal(e.to_string()))?;
+    if dpu_in_managed_host {
+        return Err(CarbideError::InvalidArgument(format!(
+            "Cannot trigger BFB recovery: DPU {dpu_ip} is already ingested. \
+             Force-delete the managed host first.",
+        ))
+        .into());
+    }
+
+    let dpu_endpoints = db::explored_endpoints::find_by_ips(&api.database_connection, vec![dpu_ip])
+        .await
+        .map_err(|e| CarbideError::internal(e.to_string()))?;
+    let dpu_endpoint = dpu_endpoints.first().ok_or(CarbideError::NotFoundError {
+        kind: "explored_endpoint",
+        id: dpu_ip.to_string(),
+    })?;
+
+    match &dpu_endpoint.preingestion_state {
+        PreingestionState::Initial
+        | PreingestionState::Complete
+        | PreingestionState::Failed { .. } => {}
+        other => {
+            return Err(CarbideError::InvalidArgument(format!(
+                "Cannot trigger BFB recovery: DPU endpoint is in state {other:?}. \
+                 Wait for it to complete or fail first.",
+            ))
+            .into());
+        }
+    }
+
+    {
+        let host_endpoints =
+            db::explored_endpoints::find_by_ips(&api.database_connection, vec![host_bmc_ip])
+                .await
+                .map_err(|e| CarbideError::internal(e.to_string()))?;
+        let host_ep = host_endpoints.first().ok_or(CarbideError::NotFoundError {
+            kind: "explored_endpoint",
+            id: host_bmc_ip.to_string(),
+        })?;
+        match &host_ep.preingestion_state {
+            PreingestionState::Complete | PreingestionState::Failed { .. } => {}
+            other => {
+                return Err(CarbideError::InvalidArgument(format!(
+                    "Cannot power-cycle host: host {host_bmc_ip} is in state {other:?}. \
+                     Retry after host preingestion completes.",
+                ))
+                .into());
+            }
+        }
+    }
+
+    api.database_connection
+        .with_txn(|txn| {
+            Box::pin(async move {
+                db::explored_endpoints::set_preingestion_bfb_recovery_needed(
+                    dpu_ip,
+                    "Triggered via CLI".to_string(),
+                    host_bmc_ip,
+                    pre_copy_powercycle,
+                    txn,
+                )
+                .await?;
+
+                // Pause site explorer remediation on the host so it doesn't
+                // issue BMC resets during the power-cycle phases.
+                db::explored_endpoints::set_pause_remediation(host_bmc_ip, true, txn).await?;
+
+                Ok::<(), db::DatabaseError>(())
+            })
+        })
+        .await
+        .map_err(|e| CarbideError::internal(e.to_string()))?
+        .map_err(|e| CarbideError::internal(e.to_string()))?;
 
     Ok(Response::new(()))
 }
@@ -616,55 +699,6 @@ async fn resolve_bmc_interface(
     };
 
     Ok((bmc_addr, bmc_mac_address))
-}
-
-async fn do_copy_bfb_to_dpu_rshim(
-    api: &Api,
-    request: &rpc::BmcEndpointRequest,
-) -> Result<Response<()>, Status> {
-    let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, request).await?;
-    let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
-
-    // Create a separate address for Redfish probing (port 443) since bmc_addr uses SSH port 22
-    let redfish_addr = SocketAddr::new(bmc_addr.ip(), 443);
-
-    // Periodically probe the redfish endpoint until the DPU BMC is reachable (if host was powercycled)
-    const MAX_PROBE_ATTEMPTS: u32 = 20; // 20 attempts
-    const PROBE_INTERVAL: Duration = Duration::from_secs(30); // 30 seconds between attempts
-
-    for attempt in 0..MAX_PROBE_ATTEMPTS {
-        match api
-            .endpoint_explorer
-            .probe_redfish_endpoint(redfish_addr)
-            .await
-        {
-            Ok(_) => {
-                tracing::info!("DPU BMC is online, continuing...");
-                break;
-            }
-            Err(_) if attempt == MAX_PROBE_ATTEMPTS - 1 => {
-                return Err(Status::deadline_exceeded(
-                    "DPU BMC did not come back online after host powercycle",
-                ));
-            }
-            Err(_) => {
-                tracing::info!(
-                    "DPU BMC not yet reachable (attempt {}/{}), retrying in {} seconds...",
-                    attempt + 1,
-                    MAX_PROBE_ATTEMPTS,
-                    PROBE_INTERVAL.as_secs()
-                );
-                tokio::time::sleep(PROBE_INTERVAL).await;
-            }
-        }
-    }
-
-    api.endpoint_explorer
-        .copy_bfb_to_dpu_rshim(bmc_addr, &machine_interface)
-        .await
-        .map_err(|e| CarbideError::internal(e.to_string()))?;
-
-    Ok(Response::new(()))
 }
 
 pub(crate) async fn create_bmc_user(
@@ -816,15 +850,18 @@ pub(crate) async fn validate_and_complete_bmc_endpoint_request(
 ) -> Result<(rpc::BmcEndpointRequest, Option<MachineId>), CarbideError> {
     match (bmc_endpoint_request, machine_id) {
         (Some(bmc_endpoint_request), _) => {
-            let interface = db::machine_interface::find_by_ip(
-                txn,
-                bmc_endpoint_request.ip_address.parse().unwrap(),
-            )
-            .await?
-            .ok_or_else(|| CarbideError::NotFoundError {
-                kind: "machine_interface",
-                id: bmc_endpoint_request.ip_address.clone(),
+            let parsed_ip = bmc_endpoint_request.ip_address.parse().map_err(|e| {
+                CarbideError::InvalidArgument(format!(
+                    "invalid ip_address {:?}: {e}",
+                    bmc_endpoint_request.ip_address
+                ))
             })?;
+            let interface = db::machine_interface::find_by_ip(txn, parsed_ip)
+                .await?
+                .ok_or_else(|| CarbideError::NotFoundError {
+                    kind: "machine_interface",
+                    id: bmc_endpoint_request.ip_address.clone(),
+                })?;
 
             let bmc_mac = match bmc_endpoint_request.mac_address {
                 // No MAC in the request, use the interface MAC
@@ -860,24 +897,20 @@ pub(crate) async fn validate_and_complete_bmc_endpoint_request(
         (_, Some(machine_id)) => {
             log_machine_id(&machine_id);
 
-            let mut topologies =
-                db::machine_topology::find_latest_by_machine_ids(txn, &[machine_id]).await?;
+            let machine = db::machine::find_one(txn, &machine_id, MachineSearchConfig::default())
+                .await?
+                .ok_or_else(|| CarbideError::NotFoundError {
+                    kind: "machine",
+                    id: machine_id.to_string(),
+                })?;
 
-            let topology =
-                topologies
-                    .remove(&machine_id)
-                    .ok_or_else(|| CarbideError::NotFoundError {
-                        kind: "machine",
-                        id: machine_id.to_string(),
-                    })?;
-
-            let bmc_ip = topology.topology().bmc_info.ip.as_ref().ok_or_else(|| {
+            let bmc_ip = machine.bmc_info.ip.as_ref().ok_or_else(|| {
                 CarbideError::internal(format!(
                     "Machine found for {machine_id} but BMC IP is missing"
                 ))
             })?;
 
-            let bmc_mac_address = topology.topology().bmc_info.mac.ok_or_else(|| {
+            let bmc_mac_address = machine.bmc_info.mac.ok_or_else(|| {
                 CarbideError::internal(format!("BMC endpoint for {bmc_ip} ({machine_id}) found but does not have associated MAC"))
             })?;
 

@@ -17,10 +17,11 @@
 
 use crate::state_controller::common_services::CommonStateHandlerServices;
 use crate::state_controller::state_handler::StateHandlerContextObjects;
+use crate::state_controller::switch::metrics::SwitchMetrics;
 
 pub struct SwitchStateHandlerContextObjects {}
 
 impl StateHandlerContextObjects for SwitchStateHandlerContextObjects {
-    type ObjectMetrics = ();
+    type ObjectMetrics = SwitchMetrics;
     type Services = CommonStateHandlerServices;
 }

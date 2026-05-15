@@ -21,11 +21,13 @@ use std::sync::Arc;
 use super::context::{BmcClient, CollectorKind, DiscoveryLoopContext};
 use crate::HealthError;
 use crate::collectors::{
-    Collector, CollectorStartContext, FirmwareCollector, FirmwareCollectorConfig, LogsCollector,
-    LogsCollectorConfig, NmxtCollector, NmxtCollectorConfig, NvueRestCollector,
-    NvueRestCollectorConfig, SensorCollector, SensorCollectorConfig, create_log_file_writer,
+    BackoffConfig, Collector, CollectorStartContext, FirmwareCollector, FirmwareCollectorConfig,
+    LeakDetectorCollector, LeakDetectorCollectorConfig, LogsCollector, LogsCollectorConfig,
+    NmxtCollector, NmxtCollectorConfig, NvueRestCollector, NvueRestCollectorConfig,
+    SensorCollector, SensorCollectorConfig, SseLogCollector, SseLogCollectorConfig,
+    StreamingCollectorStartContext,
 };
-use crate::config::Configurable;
+use crate::config::{Configurable, LogCollectionMode};
 use crate::endpoint::{BmcEndpoint, EndpointMetadata};
 use crate::sink::DataSink;
 
@@ -39,7 +41,7 @@ pub(super) async fn spawn_collectors_for_endpoint(
     data_sink: Option<Arc<dyn DataSink>>,
     metrics_prefix: &str,
 ) -> Result<(), HealthError> {
-    let key = endpoint.hash_key();
+    let key = endpoint.key();
     let endpoint_arc = endpoint.clone();
     if let Configurable::Enabled(sensor_cfg) = &ctx.sensors_config
         && !ctx.collectors.contains(CollectorKind::Sensor, &key)
@@ -67,7 +69,7 @@ pub(super) async fn spawn_collectors_for_endpoint(
         ) {
             Ok(monitor) => {
                 ctx.collectors
-                    .insert(CollectorKind::Sensor, key.clone(), monitor);
+                    .insert(CollectorKind::Sensor, key.clone().into(), monitor);
                 tracing::info!(
                     endpoint_key = %key,
                     total_collectors = ctx.collectors.len(CollectorKind::Sensor),
@@ -87,68 +89,81 @@ pub(super) async fn spawn_collectors_for_endpoint(
     if let Configurable::Enabled(logs_cfg) = &ctx.logs_config
         && !ctx.collectors.contains(CollectorKind::Logs, &key)
     {
-        let endpoint_id = endpoint.log_identity().into_owned();
-        let state_file_path = logs_state_file_path(&logs_cfg.logs_state_file, &endpoint_id);
+        let collector_registry = Arc::new(
+            ctx.metrics_manager
+                .create_collector_registry(format!("log_collector_{key}"), metrics_prefix)?,
+        );
 
-        let log_writer = match create_log_file_writer(
-            PathBuf::from(&logs_cfg.logs_output_dir),
-            endpoint_id.clone(),
-            logs_cfg.logs_max_file_size,
-            logs_cfg.logs_max_backups,
-        )
-        .await
-        {
-            Ok(writer) => Some(Arc::new(tokio::sync::Mutex::new(writer))),
-            Err(error) => {
-                tracing::error!(
-                    ?error,
-                    endpoint_id = %endpoint_id,
-                    "Failed to create log file writer, skipping logs collector"
-                );
-                None
+        let result = match logs_cfg.mode {
+            LogCollectionMode::Sse => {
+                if let Some(data_sink) = data_sink.clone() {
+                    Some(Collector::start_streaming::<SseLogCollector<BmcClient>>(
+                        endpoint_arc.clone(),
+                        SseLogCollectorConfig,
+                        data_sink,
+                        StreamingCollectorStartContext {
+                            backoff_config: BackoffConfig::default(),
+                            collector_registry,
+                            client: ctx.client.clone(),
+                            health_options: ctx.config.clone(),
+                        },
+                    ))
+                } else {
+                    tracing::warn!("SSE log collector requires a data sink, skipping");
+                    None
+                }
+            }
+            LogCollectionMode::Periodic => {
+                if let Some(pcfg) = &logs_cfg.periodic {
+                    let endpoint_id = endpoint.log_identity().into_owned();
+                    let state_file_path = logs_state_file_path(&pcfg.logs_state_file, &endpoint_id);
+
+                    Some(Collector::start::<LogsCollector<BmcClient>>(
+                        endpoint_arc.clone(),
+                        LogsCollectorConfig {
+                            state_file_path,
+                            service_refresh_interval: pcfg.state_refresh_interval,
+                            data_sink: data_sink.clone(),
+                        },
+                        CollectorStartContext {
+                            limiter: ctx.limiter.clone(),
+                            iteration_interval: pcfg.logs_collection_interval,
+                            collector_registry,
+                            metrics_manager: ctx.metrics_manager.clone(),
+                            client: ctx.client.clone(),
+                            health_options: ctx.config.clone(),
+                        },
+                    ))
+                } else {
+                    tracing::error!(
+                        endpoint = ?endpoint.addr,
+                        "periodic log config missing but mode is periodic, skipping"
+                    );
+                    None
+                }
             }
         };
 
-        if let Some(log_writer) = log_writer {
-            let collector_registry = Arc::new(
-                ctx.metrics_manager
-                    .create_collector_registry(format!("log_collector_{key}"), metrics_prefix)?,
-            );
-
-            match Collector::start::<LogsCollector<BmcClient>>(
-                endpoint_arc.clone(),
-                LogsCollectorConfig {
-                    state_file_path,
-                    service_refresh_interval: logs_cfg.state_refresh_interval,
-                    log_writer,
-                    data_sink: data_sink.clone(),
-                },
-                CollectorStartContext {
-                    limiter: ctx.limiter.clone(),
-                    iteration_interval: logs_cfg.logs_collection_interval,
-                    collector_registry,
-                    metrics_manager: ctx.metrics_manager.clone(),
-                    client: ctx.client.clone(),
-                    health_options: ctx.config.clone(),
-                },
-            ) {
-                Ok(collector) => {
-                    ctx.collectors
-                        .insert(CollectorKind::Logs, key.clone(), collector);
-                    tracing::info!(
-                        endpoint_key = %key,
-                        total_collectors = ctx.collectors.len(CollectorKind::Logs),
-                        "Started logs collection for BMC endpoint"
-                    );
-                }
-                Err(error) => {
-                    tracing::error!(
-                        ?error,
-                        "Could not start logs collector for: {:?}",
-                        endpoint.addr
-                    )
-                }
+        match result {
+            Some(Ok(collector)) => {
+                ctx.collectors
+                    .insert(CollectorKind::Logs, key.clone().into(), collector);
+                tracing::info!(
+                    endpoint_key = %key,
+                    mode = ?logs_cfg.mode,
+                    total_collectors = ctx.collectors.len(CollectorKind::Logs),
+                    "Started logs collection for BMC endpoint"
+                );
             }
+            Some(Err(error)) => {
+                tracing::error!(
+                    ?error,
+                    mode = ?logs_cfg.mode,
+                    "Could not start logs collector for: {:?}",
+                    endpoint.addr
+                );
+            }
+            None => {}
         }
     }
 
@@ -175,7 +190,7 @@ pub(super) async fn spawn_collectors_for_endpoint(
         ) {
             Ok(collector) => {
                 ctx.collectors
-                    .insert(CollectorKind::Firmware, key.clone(), collector);
+                    .insert(CollectorKind::Firmware, key.clone().into(), collector);
                 tracing::info!(
                     endpoint_key = %key,
                     total_firmware_collectors = ctx.collectors.len(CollectorKind::Firmware),
@@ -186,6 +201,49 @@ pub(super) async fn spawn_collectors_for_endpoint(
                 tracing::error!(
                     ?error,
                     "Could not start firmware collector for: {:?}",
+                    endpoint.addr
+                )
+            }
+        }
+    }
+
+    if let Configurable::Enabled(leak_detector_cfg) = &ctx.leak_detector_config
+        && !ctx.collectors.contains(CollectorKind::LeakDetector, &key)
+    {
+        let collector_registry =
+            Arc::new(ctx.metrics_manager.create_collector_registry(
+                format!("leak_detector_collector_{key}"),
+                metrics_prefix,
+            )?);
+        match Collector::start::<LeakDetectorCollector<BmcClient>>(
+            endpoint_arc.clone(),
+            LeakDetectorCollectorConfig {
+                data_sink: data_sink.clone(),
+                state_refresh_interval: leak_detector_cfg.state_refresh_interval,
+            },
+            CollectorStartContext {
+                limiter: ctx.limiter.clone(),
+                iteration_interval: leak_detector_cfg.poll_interval,
+                collector_registry,
+                metrics_manager: ctx.metrics_manager.clone(),
+                client: ctx.client.clone(),
+                health_options: ctx.config.clone(),
+            },
+        ) {
+            Ok(collector) => {
+                ctx.collectors
+                    .insert(CollectorKind::LeakDetector, key.clone().into(), collector);
+                tracing::info!(
+                    endpoint_key = %key,
+                    total_leak_detector_collectors =
+                        ctx.collectors.len(CollectorKind::LeakDetector),
+                    "Started leak detector collection for BMC endpoint"
+                );
+            }
+            Err(error) => {
+                tracing::error!(
+                    ?error,
+                    "Could not start leak detector collector for: {:?}",
                     endpoint.addr
                 )
             }
@@ -217,7 +275,7 @@ pub(super) async fn spawn_collectors_for_endpoint(
         ) {
             Ok(handle) => {
                 ctx.collectors
-                    .insert(CollectorKind::Nmxt, key.clone(), handle);
+                    .insert(CollectorKind::Nmxt, key.clone().into(), handle);
                 tracing::info!(
                     endpoint_key = %key,
                     total_nmxt_collectors = ctx.collectors.len(CollectorKind::Nmxt),
@@ -260,7 +318,7 @@ pub(super) async fn spawn_collectors_for_endpoint(
         ) {
             Ok(handle) => {
                 ctx.collectors
-                    .insert(CollectorKind::NvueRest, key.clone(), handle);
+                    .insert(CollectorKind::NvueRest, key.clone().into(), handle);
                 tracing::info!(
                     endpoint_key = %key,
                     total_nvue_rest_collectors = ctx.collectors.len(CollectorKind::NvueRest),
@@ -331,7 +389,10 @@ mod tests {
                 password: Some("pass".to_string()),
             },
             Some(EndpointMetadata::Switch(SwitchData {
+                id: None,
                 serial: "switch-serial-1".to_string(),
+                slot_number: None,
+                tray_index: None,
             })),
             None,
         );
@@ -345,6 +406,7 @@ mod tests {
         config.collectors.sensors = Configurable::Disabled;
         config.collectors.logs = Configurable::Disabled;
         config.collectors.firmware = Configurable::Disabled;
+        config.collectors.leak_detector = Configurable::Disabled;
         config.collectors.nmxt = Configurable::Disabled;
 
         let limiter: Arc<dyn RateLimiter> = Arc::new(NoopLimiter);
@@ -377,6 +439,7 @@ mod tests {
         assert_eq!(ctx.collectors.len(CollectorKind::Sensor), 0);
         assert_eq!(ctx.collectors.len(CollectorKind::Logs), 0);
         assert_eq!(ctx.collectors.len(CollectorKind::Firmware), 0);
+        assert_eq!(ctx.collectors.len(CollectorKind::LeakDetector), 0);
         assert_eq!(ctx.collectors.len(CollectorKind::Nmxt), 0);
         assert_eq!(ctx.collectors.len(CollectorKind::NvueRest), 0);
     }

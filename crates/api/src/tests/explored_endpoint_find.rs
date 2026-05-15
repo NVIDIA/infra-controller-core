@@ -14,9 +14,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use std::collections::HashMap;
 use std::ops::DerefMut;
 
 use ::rpc::forge as rpc;
+use model::firmware::FirmwareComponentType;
 use rpc::forge_server::Forge;
 use tonic::Code;
 
@@ -205,7 +207,8 @@ async fn test_admin_bmc_reset(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
     let e = api_result.unwrap_err();
     assert!(e.code() == Code::NotFound);
 
-    // Check that we fail with an internal error if MAC is missing from BMC details.
+    // The topology copy may be missing the MAC, but machine_id lookup should
+    // still recover it from the linked BMC machine_interface.
     let mut txn = db_pool.begin().await?;
 
     let query = format!(
@@ -223,11 +226,11 @@ async fn test_admin_bmc_reset(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
         use_ipmitool: false,
     });
     let api_result = env.api.admin_bmc_reset(req).await;
-    let e = api_result.unwrap_err();
-    assert!(e.code() == Code::Internal);
-    assert!(e.message().contains("does not have associated MAC"));
+    assert!(api_result.is_ok());
 
-    // Check that we fail with an internal error if IP is missing from BMC details.
+    // The topology copy may be missing the IP or contain stale MAC data, but
+    // machine_id lookup should still recover the current endpoint data from
+    // the linked BMC machine_interface.
     let mut txn = db_pool.begin().await?;
 
     let query = "UPDATE machine_topologies SET topology = jsonb_set(topology, '{bmc_info}',  '{\"mac\": \"C8:4B:D6:7A:DB:66\", \"port\": null, \"version\": \"1\", \"firmware_version\": \"5.10\"}', false) WHERE machine_id = $1";
@@ -243,9 +246,93 @@ async fn test_admin_bmc_reset(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
         use_ipmitool: false,
     });
     let api_result = env.api.admin_bmc_reset(req).await;
-    let e = api_result.unwrap_err();
-    assert!(e.code() == Code::Internal);
-    assert!(e.message().contains("BMC IP is missing"));
+    assert!(api_result.is_ok());
+
+    Ok(())
+}
+
+#[crate::sqlx_test()]
+async fn test_find_explored_endpoint_firmware_versions(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+
+    let versions = HashMap::from([
+        (FirmwareComponentType::Bmc, "25.06-2_NV_WW_02".to_string()),
+        (FirmwareComponentType::Uefi, "00000083".to_string()),
+        (FirmwareComponentType::HGXBmc, "97.00.B9.00.76".to_string()),
+        (FirmwareComponentType::Cx7, "28.47.2682".to_string()),
+    ]);
+
+    let mut txn = env.pool.begin().await?;
+    common::endpoint::insert_endpoint_with_firmware_versions(
+        &mut txn,
+        "141.219.24.1",
+        versions.clone(),
+    )
+    .await?;
+    txn.commit().await?;
+
+    let id_list = env
+        .api
+        .find_explored_endpoint_ids(tonic::Request::new(
+            ::rpc::site_explorer::ExploredEndpointSearchFilter {},
+        ))
+        .await
+        .map(|response| response.into_inner())
+        .unwrap();
+    assert_eq!(id_list.endpoint_ids.len(), 1);
+
+    let request = tonic::Request::new(::rpc::site_explorer::ExploredEndpointsByIdsRequest {
+        endpoint_ids: id_list.endpoint_ids,
+    });
+
+    let endpoint_list = env
+        .api
+        .find_explored_endpoints_by_ids(request)
+        .await
+        .map(|response| response.into_inner())
+        .unwrap();
+    assert_eq!(endpoint_list.endpoints.len(), 1);
+
+    let report = endpoint_list.endpoints[0].report.as_ref().unwrap();
+    let fw_versions = &report.firmware_versions;
+    assert_eq!(fw_versions.len(), 4);
+    assert_eq!(fw_versions.get("bmc").unwrap(), "25.06-2_NV_WW_02");
+    assert_eq!(fw_versions.get("uefi").unwrap(), "00000083");
+    assert_eq!(fw_versions.get("hgxbmc").unwrap(), "97.00.B9.00.76");
+    assert_eq!(fw_versions.get("cx7").unwrap(), "28.47.2682");
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_admin_bmc_reset_rejects_malformed_ip_address(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let req = tonic::Request::new(rpc::AdminBmcResetRequest {
+        bmc_endpoint_request: Some(rpc::BmcEndpointRequest {
+            ip_address: "not-an-ip".to_string(),
+            mac_address: None,
+        }),
+        machine_id: None,
+        use_ipmitool: false,
+    });
+
+    let err = env
+        .api
+        .admin_bmc_reset(req)
+        .await
+        .expect_err("expected malformed ip_address to be rejected");
+
+    assert_eq!(err.code(), Code::InvalidArgument);
+    assert!(
+        err.message().contains("invalid ip_address"),
+        "message was: {}",
+        err.message()
+    );
 
     Ok(())
 }

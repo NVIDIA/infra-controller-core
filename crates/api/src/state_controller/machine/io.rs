@@ -23,9 +23,11 @@ use db::{self, DatabaseError};
 use model::StateSla;
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::machine::machine_search_config::MachineSearchConfig;
+use model::machine::slas::MachineSlaConfig;
 use model::machine::{
-    self, DpuDiscoveringState, DpuInitState, HostHealthConfig, MachineValidatingState,
-    ManagedHostState, ManagedHostStateSnapshot, MeasuringState, ValidationState,
+    self, AttestationMode, DpuDiscoveringState, DpuInitState, HostHealthConfig,
+    MachineValidatingState, ManagedHostState, ManagedHostStateSnapshot, MeasuringState,
+    SpdmMeasuringState, ValidationState,
 };
 use sqlx::PgConnection;
 
@@ -33,13 +35,11 @@ use crate::state_controller::io::StateControllerIO;
 use crate::state_controller::machine::context::MachineStateHandlerContextObjects;
 use crate::state_controller::machine::metrics::MachineMetricsEmitter;
 
-// This should be updated on each new model introdunction
-pub const CURRENT_STATE_MODEL_VERSION: i16 = 2;
-
 /// State Controller IO implementation for Machines
 #[derive(Default, Debug)]
 pub struct MachineStateControllerIO {
     pub host_health: HostHealthConfig,
+    pub sla_config: MachineSlaConfig,
 }
 
 #[async_trait::async_trait]
@@ -172,7 +172,10 @@ impl StateControllerIO for MachineStateControllerIO {
         fn machine_state_name(machine_state: &MachineState) -> &'static str {
             match machine_state {
                 MachineState::Init => "init",
-                MachineState::WaitingForPlatformConfiguration => "waitingforplatformconfiguration",
+                MachineState::WaitingForPlatformConfiguration { .. } => {
+                    "waitingforplatformconfiguration"
+                }
+                MachineState::WaitingForBiosJob { .. } => "waitingforbiosjob",
                 MachineState::PollingBiosSetup => "pollingbiossetup",
                 MachineState::SetBootOrder { .. } => "setbootorder",
                 MachineState::UefiSetup { .. } => "uefisetup",
@@ -181,6 +184,7 @@ impl StateControllerIO for MachineStateControllerIO {
                 MachineState::WaitingForLockdown { .. } => "waitingforlockdown",
                 MachineState::EnableIpmiOverLan => "enableipmioverlan",
                 MachineState::Measuring { .. } => "machinestatemeasuring",
+                MachineState::SpdmMeasuring { .. } => "machinestatespdmmeasuring",
             }
         }
 
@@ -230,6 +234,13 @@ impl StateControllerIO for MachineStateControllerIO {
             }
         }
 
+        fn spdm_measuring_state_name(spdm_measuring_state: &SpdmMeasuringState) -> &'static str {
+            match spdm_measuring_state {
+                SpdmMeasuringState::TriggerMeasurements => "triggermeasurements",
+                SpdmMeasuringState::PollResult => "pollresult",
+            }
+        }
+
         fn cleanup_state_name(cleanup_state: &CleanupState) -> &'static str {
             match cleanup_state {
                 CleanupState::Init => "init",
@@ -249,8 +260,6 @@ impl StateControllerIO for MachineStateControllerIO {
             }
         }
         match state {
-            ManagedHostState::RegisterRmsMembership => ("registerrmsmembership", ""),
-            ManagedHostState::VerifyRmsMembership => ("verifyrmsmembership", ""),
             ManagedHostState::DpuDiscoveringState { dpu_states } => {
                 // Min state indicates the least processed DPU. The state machine is blocked
                 // becasue of this.
@@ -287,10 +296,27 @@ impl StateControllerIO for MachineStateControllerIO {
             ManagedHostState::Measuring { measuring_state } => {
                 ("measuring", measuring_state_name(measuring_state))
             }
-            ManagedHostState::PostAssignedMeasuring { measuring_state } => (
-                "postassignedmeasuring",
-                measuring_state_name(measuring_state),
+            ManagedHostState::PreAssignedMeasuring {
+                spdm_measuring_state,
+            } => (
+                "preassignedmeasuringspdm",
+                spdm_measuring_state_name(spdm_measuring_state),
             ),
+            ManagedHostState::PostAssignedMeasuring { attestation_mode } => {
+                match attestation_mode {
+                    AttestationMode::MeasuredBoot { measuring_state } => (
+                        "postassignedmeasuringmeasuredboot",
+                        measuring_state_name(measuring_state),
+                    ),
+                    AttestationMode::SpdmAttestation {
+                        spdm_measuring_state,
+                    } => (
+                        "postassignedmeasuringspdm",
+                        spdm_measuring_state_name(spdm_measuring_state),
+                    ),
+                }
+            }
+            ManagedHostState::StartAssignmentCycle => ("startassignmentcycle", ""),
             ManagedHostState::BomValidating {
                 bom_validating_state,
             } => match bom_validating_state {
@@ -316,12 +342,17 @@ impl StateControllerIO for MachineStateControllerIO {
         }
     }
 
-    fn state_sla(state: &Versioned<Self::ControllerState>, object_state: &Self::State) -> StateSla {
+    fn state_sla(
+        &self,
+        state: &Versioned<Self::ControllerState>,
+        object_state: &Self::State,
+    ) -> StateSla {
         machine::state_sla(
             &object_state.host_snapshot.id,
             &state.value,
             &state.version,
             &object_state.aggregate_health,
+            &self.sla_config,
         )
     }
 }

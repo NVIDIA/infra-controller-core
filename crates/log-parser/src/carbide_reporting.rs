@@ -124,15 +124,15 @@ async fn send_one_report(
         return Ok(());
     }
 
-    let request = tonic::Request::new(rpc::InsertHealthReportOverrideRequest {
+    let request = tonic::Request::new(rpc::InsertMachineHealthReportRequest {
         machine_id: MachineId::from_str(machine_id).ok(),
-        r#override: Some(rpc::HealthReportOverride {
-            mode: rpc::OverrideMode::Merge.into(),
+        health_report_entry: Some(rpc::HealthReportEntry {
+            mode: rpc::HealthReportApplyMode::Merge.into(),
             report: Some(report.clone().into()),
         }),
     });
     client
-        .insert_health_report_override(request)
+        .insert_machine_health_report(request)
         .await
         .map_err(ReportingError::ApiInvocationError)?;
     machine_id.clear();

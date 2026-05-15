@@ -77,7 +77,7 @@ pub async fn persist(
         .bind(value.network_virtualization_type)
         .bind(&value.metadata.description)
         .bind(sqlx::types::Json(&value.metadata.labels))
-        .bind(value.routing_profile_type.map(|p| p.to_string()))
+        .bind(value.routing_profile_type)
         .bind(value.vni)
         .bind(sqlx::types::Json(&status))
         .fetch_one(txn)
@@ -332,7 +332,7 @@ pub async fn update_virtualization(
     .await?;
 
     for network_segment in network_segments {
-        if !network_segment.can_stretch.unwrap_or_default() {
+        if !network_segment.status.can_stretch.unwrap_or_default() {
             continue;
         }
 
@@ -358,21 +358,25 @@ pub async fn update_virtualization(
 pub async fn increment_vpc_version(
     txn: &mut PgConnection,
     id: VpcId,
+    expected_version: ConfigVersion,
 ) -> Result<ConfigVersion, DatabaseError> {
-    let read_query = "SELECT version FROM vpcs WHERE id=$1";
-    let current_version: ConfigVersion = sqlx::query_as(read_query)
+    let next_version = expected_version.increment();
+
+    let update_query =
+        "UPDATE vpcs SET version = $1 WHERE id = $2 AND version = $3 RETURNING version";
+    let updated: Result<(ConfigVersion,), _> = sqlx::query_as(update_query)
+        .bind(next_version)
         .bind(id)
+        .bind(expected_version)
         .fetch_one(&mut *txn)
-        .await
-        .map_err(|e| DatabaseError::query(read_query, e))?;
+        .await;
 
-    let new_version = current_version.increment();
-
-    let update_query = "UPDATE vpcs SET version = $1 WHERE id = $2 RETURNING version";
-    sqlx::query_as(update_query)
-        .bind(new_version)
-        .bind(id)
-        .fetch_one(txn)
-        .await
-        .map_err(|e| DatabaseError::query(update_query, e))
+    match updated {
+        Ok((version,)) => Ok(version),
+        Err(sqlx::Error::RowNotFound) => Err(DatabaseError::ConcurrentModificationError(
+            "vpc",
+            expected_version.to_string(),
+        )),
+        Err(e) => Err(DatabaseError::query(update_query, e)),
+    }
 }

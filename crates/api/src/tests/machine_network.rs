@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use std::collections::HashMap;
 use std::ops::DerefMut;
 use std::time::SystemTime;
 
@@ -22,17 +23,27 @@ use ::rpc::forge::{
     InstanceDpuExtensionServiceConfig, InstanceDpuExtensionServicesConfig,
     ManagedHostNetworkConfigRequest, ManagedHostNetworkStatusRequest,
 };
+use common::api_fixtures::network_segment::create_network_segment;
 use common::api_fixtures::{self, create_managed_host, dpu, network_configured_with_health};
+use forge_secrets::credentials::{BgpCredentialType, CredentialKey, Credentials};
 use model::machine::network::ManagedHostQuarantineMode;
+use rpc::Metadata;
 use rpc::forge::forge_server::Forge;
 
+use crate::cfg::file::{
+    AdminFnnConfig, FnnConfig, FnnRoutingProfileConfig, PrefixFilterPolicyEntry,
+};
 use crate::tests::common;
+use crate::tests::common::api_fixtures::TestEnvOverrides;
+use crate::tests::common::api_fixtures::site_explorer::MockExploredHost;
+use crate::tests::common::rpc_builder::VpcCreationRequest;
 
 #[crate::sqlx_test]
 async fn test_managed_host_network_config(pool: sqlx::PgPool) {
     let env = api_fixtures::create_test_env(pool).await;
     let host_config = env.managed_host_config();
-    let dpu_machine_id = dpu::create_dpu_machine(&env, &host_config).await;
+    let mh = dpu::create_dpu_machine_in_waiting_for_network_install(&env, &host_config).await;
+    let dpu_machine_id = mh.dpu().id;
 
     // Fetch a Machines network config
     let response = env
@@ -46,13 +57,425 @@ async fn test_managed_host_network_config(pool: sqlx::PgPool) {
 }
 
 #[crate::sqlx_test]
+async fn test_managed_host_network_config_with_sitewide_bgp_password(pool: sqlx::PgPool) {
+    // Enable site-wide DPU BGP passwords in runtime config.
+    let mut config = api_fixtures::get_config();
+    config.bgp_leaf_session_password = Some(crate::cfg::file::BgpLeafSessionPassword::SiteWide);
+
+    let env =
+        api_fixtures::create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config))
+            .await;
+
+    // Seed the site-wide DPU BGP credential.
+    env.api
+        .credential_manager
+        .set_credentials(
+            &CredentialKey::Bgp {
+                credential_type: BgpCredentialType::SiteWideLeafPassword,
+            },
+            &Credentials::UsernamePassword {
+                username: "".to_string(),
+                password: "test-bgp-password".to_string(),
+            },
+        )
+        .await
+        .unwrap();
+
+    // Create a DPU that can request managed host network config.
+    let host_config = env.managed_host_config();
+    let dpu_machine_id = dpu::create_dpu_machine(&env, &host_config).await;
+
+    // Verify the handler returns the configured site-wide BGP password.
+    let response = env
+        .api
+        .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
+            dpu_machine_id: Some(dpu_machine_id),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert_eq!(
+        response.bgp_leaf_session_password,
+        Some("test-bgp-password".to_string())
+    );
+}
+
+#[crate::sqlx_test]
+async fn test_managed_host_network_config_includes_routing_profile_accepted_leaks(
+    pool: sqlx::PgPool,
+) {
+    let profile_type = "ROUTE_LEAK_TEST";
+    let expected_leaks = vec!["10.42.0.0/24".to_string(), "2001:db8:42::/64".to_string()];
+
+    // Configure an FNN routing profile with explicit accepted underlay leaks.
+    let env = api_fixtures::create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::default().with_fnn_config(Some(FnnConfig {
+            admin_vpc: None,
+            common_internal_route_target: None,
+            additional_route_target_imports: vec![],
+            routing_profiles: HashMap::from([(
+                profile_type.to_string(),
+                FnnRoutingProfileConfig {
+                    internal: true,
+                    access_tier: 0,
+                    accepted_leaks_from_underlay: expected_leaks
+                        .iter()
+                        .map(|prefix| PrefixFilterPolicyEntry {
+                            prefix: prefix.parse().unwrap(),
+                        })
+                        .collect(),
+                    ..Default::default()
+                },
+            )]),
+            use_vpc_vrf_loopback: false,
+        })),
+    )
+    .await;
+
+    // Create a tenant and FNN VPC using that routing profile.
+    let tenant = env
+        .api
+        .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
+            organization_id: "route-leak-test".to_string(),
+            routing_profile_type: Some(profile_type.to_string()),
+            metadata: Some(rpc::forge::Metadata {
+                name: "route-leak-test".to_string(),
+                description: "".to_string(),
+                labels: vec![],
+            }),
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .tenant
+        .unwrap();
+
+    let segment_id = env
+        .create_vpc_and_tenant_segment_with_vpc_details(
+            VpcCreationRequest::builder(tenant.organization_id.as_str())
+                .metadata(Metadata {
+                    name: "route leak vpc".to_string(),
+                    ..Default::default()
+                })
+                .network_virtualization_type(rpc::forge::VpcVirtualizationType::Fnn as i32)
+                .routing_profile_type(profile_type.to_string())
+                .rpc(),
+        )
+        .await;
+
+    // Allocate an instance on the VPC so the DPU receives tenant network config.
+    let mh = create_managed_host(&env).await;
+    mh.instance_builer(&env)
+        .tenant_org(tenant.organization_id)
+        .single_interface_network_config(segment_id)
+        .build()
+        .await;
+
+    // Fetch the DPU network config and extract its routing profile.
+    let response = env
+        .api
+        .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
+            dpu_machine_id: Some(mh.dpu().id),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    let routing_profile = response.routing_profile.unwrap();
+
+    // Verify the configured leak prefixes are preserved in the gRPC response.
+    let actual_leaks: Vec<_> = routing_profile
+        .accepted_leaks_from_underlay
+        .into_iter()
+        .map(|leak| leak.prefix)
+        .collect();
+    assert_eq!(actual_leaks, expected_leaks);
+}
+
+#[crate::sqlx_test]
+async fn test_managed_host_network_config_omits_fnn_vrf_loopback_by_default(pool: sqlx::PgPool) {
+    let env = api_fixtures::create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::default().with_fnn_config(None),
+    )
+    .await;
+
+    // Create a tenant and FNN segment with the default disabled loopback setting.
+    let tenant = env
+        .api
+        .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
+            organization_id: "fnn-loopback-default".to_string(),
+            routing_profile_type: Some("INTERNAL".to_string()),
+            metadata: Some(rpc::forge::Metadata {
+                name: "fnn-loopback-default".to_string(),
+                ..Default::default()
+            }),
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .tenant
+        .unwrap();
+
+    let segment_id = env
+        .create_vpc_and_tenant_segment_with_vpc_details(
+            VpcCreationRequest::builder(tenant.organization_id.as_str())
+                .metadata(Metadata {
+                    name: "fnn loopback default vpc".to_string(),
+                    ..Default::default()
+                })
+                .network_virtualization_type(rpc::forge::VpcVirtualizationType::Fnn as i32)
+                .routing_profile_type("INTERNAL".to_string())
+                .rpc(),
+        )
+        .await;
+
+    // Allocate a managed host on the FNN segment.
+    let mh = create_managed_host(&env).await;
+    let dpu_machine_id = mh.dpu().id;
+    mh.instance_builer(&env)
+        .tenant_org(tenant.organization_id)
+        .single_interface_network_config(segment_id)
+        .build()
+        .await;
+
+    // Fetch the DPU config and verify no tenant VRF loopback is sent.
+    let response = env
+        .api
+        .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
+            dpu_machine_id: Some(dpu_machine_id),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert!(!response.tenant_interfaces.is_empty());
+    assert!(
+        response
+            .tenant_interfaces
+            .iter()
+            .all(|iface| iface.tenant_vrf_loopback_ip.is_none())
+    );
+
+    // Verify the DB did not allocate a VPC/DPU loopback row.
+    let mut txn = env.db_txn().await;
+    let vpc = db::vpc::find_by_segment(txn.as_mut(), segment_id)
+        .await
+        .unwrap();
+    let loopback = db::vpc_dpu_loopback::find(txn.as_mut(), &dpu_machine_id, &vpc.id)
+        .await
+        .unwrap();
+    assert!(loopback.is_none());
+}
+
+#[crate::sqlx_test]
+async fn test_managed_host_network_config_includes_fnn_vrf_loopback_when_enabled(
+    pool: sqlx::PgPool,
+) {
+    let mut overrides = TestEnvOverrides::default().with_fnn_config(None);
+    overrides.fnn_config.as_mut().unwrap().use_vpc_vrf_loopback = true;
+
+    let env = api_fixtures::create_test_env_with_overrides(pool, overrides).await;
+
+    // Create a tenant and FNN segment with loopback allocation enabled.
+    let tenant = env
+        .api
+        .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
+            organization_id: "fnn-loopback-enabled".to_string(),
+            routing_profile_type: Some("INTERNAL".to_string()),
+            metadata: Some(rpc::forge::Metadata {
+                name: "fnn-loopback-enabled".to_string(),
+                ..Default::default()
+            }),
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .tenant
+        .unwrap();
+
+    let segment_id = env
+        .create_vpc_and_tenant_segment_with_vpc_details(
+            VpcCreationRequest::builder(tenant.organization_id.as_str())
+                .metadata(Metadata {
+                    name: "fnn loopback enabled vpc".to_string(),
+                    ..Default::default()
+                })
+                .network_virtualization_type(rpc::forge::VpcVirtualizationType::Fnn as i32)
+                .routing_profile_type("INTERNAL".to_string())
+                .rpc(),
+        )
+        .await;
+
+    // Allocate a managed host on the FNN segment.
+    let mh = create_managed_host(&env).await;
+    let dpu_machine_id = mh.dpu().id;
+    mh.instance_builer(&env)
+        .tenant_org(tenant.organization_id)
+        .single_interface_network_config(segment_id)
+        .build()
+        .await;
+
+    // Fetch the DPU config and verify the tenant VRF loopback is sent.
+    let response = env
+        .api
+        .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
+            dpu_machine_id: Some(dpu_machine_id),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    let loopback_ip = response.tenant_interfaces[0]
+        .tenant_vrf_loopback_ip
+        .clone()
+        .expect("loopback should be present when enabled");
+
+    // Verify the DB allocation matches the response.
+    let mut txn = env.db_txn().await;
+    let vpc = db::vpc::find_by_segment(txn.as_mut(), segment_id)
+        .await
+        .unwrap();
+    let loopback = db::vpc_dpu_loopback::find(txn.as_mut(), &dpu_machine_id, &vpc.id)
+        .await
+        .unwrap()
+        .expect("loopback allocation should be persisted");
+    assert_eq!(loopback.loopback_ip.to_string(), loopback_ip);
+}
+
+#[crate::sqlx_test]
+async fn test_managed_host_network_config_omits_admin_fnn_vrf_loopback_by_default(
+    pool: sqlx::PgPool,
+) {
+    let mut overrides = TestEnvOverrides::default().with_fnn_config(None);
+    overrides.fnn_config.as_mut().unwrap().admin_vpc = Some(AdminFnnConfig {
+        enabled: true,
+        vpc_vni: Some(10000),
+        routing_profile: FnnRoutingProfileConfig::default(),
+    });
+
+    let env = api_fixtures::create_test_env_with_overrides(pool, overrides).await;
+
+    // Attach the FNN admin VPC because test env setup does not run production setup hooks.
+    crate::db_init::create_admin_vpc(&env.pool, Some(10000))
+        .await
+        .unwrap();
+    crate::db_init::update_network_segments_svi_ip(&env.pool)
+        .await
+        .unwrap();
+
+    // Create a managed host that stays on the admin network.
+    let mh = create_managed_host(&env).await;
+    let dpu_machine_id = mh.dpu().id;
+
+    // Fetch the DPU config and verify the FNN admin interface has no loopback.
+    let response = env
+        .api
+        .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
+            dpu_machine_id: Some(dpu_machine_id),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    let admin_interface = response
+        .admin_interface
+        .as_ref()
+        .expect("admin interface should be present");
+
+    assert!(response.use_admin_network);
+    assert_eq!(admin_interface.vpc_vni, 10000);
+    assert!(admin_interface.tenant_vrf_loopback_ip.is_none());
+
+    // Verify the admin VPC also did not allocate a VPC/DPU loopback row.
+    let mut txn = env.db_txn().await;
+    let admin_segment = db::network_segment::admin(txn.as_mut())
+        .await
+        .unwrap()
+        .remove(0);
+    let admin_vpc_id = admin_segment
+        .config
+        .vpc_id
+        .expect("admin segment should be attached to an FNN VPC");
+    let loopback = db::vpc_dpu_loopback::find(txn.as_mut(), &dpu_machine_id, &admin_vpc_id)
+        .await
+        .unwrap();
+    assert!(loopback.is_none());
+}
+
+#[crate::sqlx_test]
+async fn test_managed_host_network_config_errors_when_sitewide_bgp_password_missing(
+    pool: sqlx::PgPool,
+) {
+    // Enable site-wide DPU BGP passwords in runtime config without creating the credential.
+    let mut config = api_fixtures::get_config();
+    config.bgp_leaf_session_password = Some(crate::cfg::file::BgpLeafSessionPassword::SiteWide);
+
+    let env =
+        api_fixtures::create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config))
+            .await;
+
+    // Create a DPU without advancing to the point where the fixture fetches network config.
+    // We'll fetch config next to validate the failure case.
+    let host_config = env.managed_host_config();
+    api_fixtures::site_explorer::register_expected_machine(&env, &host_config, None).await;
+
+    let mock_explored_host = MockExploredHost::new(&env, host_config)
+        .discover_dhcp_dpu_bmc(0, |_, _| Ok(()))
+        .await
+        .unwrap()
+        .discover_dhcp_dpu_primary_iface(0)
+        .await
+        // Discover the host BMC and persist the exploration results.
+        .discover_dhcp_host_bmc(|_, _| Ok(()))
+        .await
+        .unwrap()
+        .insert_site_exploration_results()
+        .unwrap()
+        .run_site_explorer_iteration()
+        .await
+        .mark_preingestion_complete()
+        .await
+        .unwrap()
+        .run_site_explorer_iteration()
+        .await;
+
+    let dpu_machine_id = mock_explored_host.dpu_machine_ids[&0];
+
+    // Verify the handler fails when the site-wide BGP credential is missing.
+    let err = env
+        .api
+        .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
+            dpu_machine_id: Some(dpu_machine_id),
+        }))
+        .await
+        .expect_err("missing site-wide BGP password should fail");
+
+    assert_eq!(err.code(), tonic::Code::Internal);
+    assert!(err.message().contains("Could not find BGP credential"));
+}
+
+#[crate::sqlx_test]
 async fn test_managed_host_network_config_multi_dpu(pool: sqlx::PgPool) {
-    // Given: A managed host with 2 DPUs
     let env = api_fixtures::create_test_env(pool).await;
+
+    // Given: A managed host with 2 DPUs.
     let mh = api_fixtures::create_managed_host_multi_dpu(&env, 2).await;
+
     let host_machine = mh.host().rpc_machine().await;
     let dpu_1_id = host_machine.associated_dpu_machine_ids[0];
     let dpu_2_id = host_machine.associated_dpu_machine_ids[1];
+
+    // And: Multiple admin segments exist when the DPU network config is rendered.
+    let _second_admin_segment = create_network_segment(
+        &env.api,
+        "ADMIN_2",
+        "192.0.12.0/24",
+        "192.0.12.1",
+        rpc::forge::NetworkSegmentType::Admin,
+        None,
+        true,
+    )
+    .await;
 
     // Then: Get the managed host network config version via DPU 1's ID and DPU 2's ID
     let dpu_1_network_config = env
@@ -72,12 +495,30 @@ async fn test_managed_host_network_config_multi_dpu(pool: sqlx::PgPool) {
         .expect("Error getting DPU1 network config")
         .into_inner();
 
-    // Assert: They should not have the same config version, since the managed_host_config_version
-    // represents the health of that particular DPU.
-    assert!(
-        dpu_1_network_config
-            .managed_host_config_version
-            .ne(&dpu_2_network_config.managed_host_config_version)
+    let configs = [&dpu_1_network_config, &dpu_2_network_config];
+
+    // Assert: Both DPUs are still on the singular admin-interface path.
+    for config in configs {
+        assert!(config.use_admin_network);
+        assert!(config.admin_interface.is_some());
+        assert!(config.tenant_interfaces.is_empty());
+    }
+
+    // Assert: Only the primary DPU is active on the admin network.
+    assert_eq!(
+        configs
+            .iter()
+            .filter(|config| config.is_primary_dpu)
+            .count(),
+        1,
+    );
+
+    // Assert: Both DPUs report the same managed_host_config_version, because
+    // it's the host's network_config_version and group-sync keeps every member
+    // of the host's machine group at the same version.
+    assert_eq!(
+        dpu_1_network_config.managed_host_config_version,
+        dpu_2_network_config.managed_host_config_version,
     );
 }
 
@@ -97,7 +538,9 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
             device_instance: 0u32,
             virtual_function_id: None,
             ip_address: None,
+            ipv6_interface_config: None,
         }],
+        auto: false,
     };
 
     mh.instance_builer(&env)
@@ -196,7 +639,9 @@ async fn test_managed_host_network_config_with_extension_services(pool: sqlx::Pg
             device_instance: 0u32,
             virtual_function_id: None,
             ip_address: None,
+            ipv6_interface_config: None,
         }],
+        auto: false,
     };
 
     let default_tenant_org = "best_org";

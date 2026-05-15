@@ -18,6 +18,7 @@ use std::collections::HashMap;
 use std::str::FromStr;
 
 use ::rpc::forge::{self as rpc, AdminForceDeleteMachineResponse};
+use carbide_redfish::libredfish::RedfishAuth;
 use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::MachineId;
@@ -25,7 +26,7 @@ use db::{DatabaseError, WithTransaction, extension_service, network_security_gro
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey};
 use futures_util::FutureExt;
 use health_report::{
-    HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthReport, OverrideMode,
+    HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthReport, HealthReportApplyMode,
 };
 use itertools::Itertools as _;
 use model::ConfigValidationError;
@@ -39,7 +40,8 @@ use model::instance::config::tenant_config::TenantConfig;
 use model::instance::snapshot::InstanceSnapshot;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{
-    InstanceState, LoadSnapshotOptions, ManagedHostState, ManagedHostStateSnapshot,
+    HostHealthConfig, InstanceState, LoadSnapshotOptions, ManagedHostState,
+    ManagedHostStateSnapshot,
 };
 use model::metadata::Metadata;
 use model::os::OperatingSystem;
@@ -50,10 +52,39 @@ use crate::api::{Api, log_machine_id, log_request_data, log_tenant_organization_
 use crate::handlers::utils::convert_and_log_machine_id;
 use crate::instance::{
     InstanceAllocationRequest, allocate_ib_port_guid, allocate_instance, allocate_network,
-    validate_ib_partition_ownership,
+    validate_ib_partition_ownership, validate_os_definition_usable,
 };
-use crate::redfish::RedfishAuth;
 use crate::{CarbideError, CarbideResult};
+
+/// Refuses `ReleaseInstance` when aggregate host health includes [`HealthAlertClassification::prevent_instance_deletion`].
+/// Admin `force_delete_instance` is not subject to this check.
+async fn ensure_instance_release_not_blocked_by_prevent_instance_deletion(
+    txn: &mut db::Transaction<'_>,
+    machine_id: &MachineId,
+    host_health: HostHealthConfig,
+) -> Result<(), CarbideError> {
+    let Some(snapshot) = db::managed_host::load_snapshot(
+        txn,
+        machine_id,
+        LoadSnapshotOptions::default().with_host_health(host_health),
+    )
+    .await?
+    else {
+        return Err(CarbideError::NotFoundError {
+            kind: "machine",
+            id: machine_id.to_string(),
+        });
+    };
+
+    if snapshot
+        .aggregate_health
+        .has_classification(&HealthAlertClassification::prevent_instance_deletion())
+    {
+        return Err(ConfigValidationError::InstanceReleaseBlockedByPreventInstanceDeletion.into());
+    }
+
+    Ok(())
+}
 
 /// Represents the repair status label value set by RepairSystem
 ///
@@ -330,10 +361,10 @@ async fn apply_health_override(
     override_report: &HealthReport,
     operation_desc: &str,
 ) -> Result<(), CarbideError> {
-    db::machine::insert_health_report_override(
+    db::machine::insert_health_report(
         txn,
         machine_id,
-        OverrideMode::Merge,
+        HealthReportApplyMode::Merge,
         override_report,
         false,
     )
@@ -363,7 +394,7 @@ async fn remove_health_override(
     source: &str,
     operation_desc: &str,
 ) -> Result<(), CarbideError> {
-    db::machine::remove_health_report_override(txn, machine_id, OverrideMode::Merge, source)
+    db::machine::remove_health_report(txn, machine_id, HealthReportApplyMode::Merge, source)
         .await
         .map_err(|e| {
             tracing::error!(
@@ -411,10 +442,7 @@ async fn handle_instance_release_from_repair_tenant(
     machine: &model::machine::Machine,
     tenant_organization_id: &str,
 ) -> Result<(), CarbideError> {
-    let has_request_repair = machine
-        .health_report_overrides
-        .merges
-        .contains_key("repair-request");
+    let has_request_repair = machine.health_reports.merges.contains_key("repair-request");
 
     if !has_request_repair {
         // No existing RequestRepair override
@@ -608,7 +636,16 @@ async fn handle_instance_release_from_regular_tenant_and_report_issue(
 /// Handles instance release requests with support for the Forge-RepairSystem integration.
 ///
 /// This function processes instance deletion requests and applies appropriate health overrides
-/// based on the requesting tenant type and reported issues. It supports two main workflows:
+/// based on the requesting tenant type and reported issues. It supports two main workflows
+/// (repair tenant and regular tenant) described below.
+///
+/// **PreventInstanceDeletion:** If aggregate host health includes a [`HealthAlertClassification::prevent_instance_deletion`]
+/// alert, `ReleaseInstance` is rejected until the alert is cleared (only when the instance is not already
+/// marked deleted). Admin machine force-delete does not use this check.
+///
+/// **Already deleted:** If the instance row is already marked deleted, this handler still runs repair-tenant
+/// (and regular-tenant issue) health logic so the repair system can clear or update overrides, then returns
+/// success without calling `mark_as_deleted` again.
 ///
 /// ## Repair Tenant Workflow
 /// When `is_repair_tenant=true`, this indicates the RepairSystem is releasing an instance after
@@ -645,6 +682,17 @@ pub(crate) async fn release(
 
     log_machine_id(&instance.machine_id);
     log_tenant_organization_id(instance.config.tenant.tenant_organization_id.as_str());
+
+    // Only enforce PreventInstanceDeletion for a real release (instance not yet marked deleted). Repair-tenant
+    // follow-up calls after deletion may still need to adjust health overrides below.
+    if instance.deleted.is_none() {
+        ensure_instance_release_not_blocked_by_prevent_instance_deletion(
+            &mut txn,
+            &instance.machine_id,
+            api.runtime_config.host_health,
+        )
+        .await?;
+    }
 
     // Instance Release called from the Repair tenant.
     if delete_instance.is_repair_tenant == Some(true) {
@@ -704,6 +752,7 @@ pub(crate) async fn release(
             instance_id = %delete_instance.instance_id,
             "Instance is already marked for deletion.",
         );
+        txn.commit().await?;
         return Ok(Response::new(rpc::InstanceReleaseResult {}));
     }
 
@@ -962,7 +1011,7 @@ pub(crate) async fn invoke_power(
             RedfishAuth::Key(CredentialKey::BmcCredentials {
                 credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
             }),
-            true,
+            None,
         )
         .await
         .map_err(|e| CarbideError::internal(e.to_string()))?;
@@ -993,6 +1042,8 @@ pub(crate) async fn update_operating_system(
     os.validate().map_err(CarbideError::from)?;
 
     let mut txn = api.txn_begin().await?;
+
+    validate_os_definition_usable(&mut txn, &os).await?;
 
     let instance = db::instance::find_by_id(&mut txn, instance_id)
         .await?
@@ -1116,6 +1167,8 @@ pub(crate) async fn update_instance_config(
         .config
         .verify_update_allowed_to(&config)
         .map_err(CarbideError::from)?;
+
+    validate_os_definition_usable(&mut txn, &config.os).await?;
 
     let expected_version = match request.if_version_match {
         Some(version) => version.parse().map_err(CarbideError::from)?,
@@ -1499,7 +1552,7 @@ pub async fn force_delete_instance(
             .new_config
             .interfaces
             .iter()
-            .filter_map(|x| match x.network_details {
+            .filter_map(|x| match &x.network_details {
                 Some(NetworkDetails::VpcPrefixId(_)) => x.network_segment_id,
                 _ => None,
             })
@@ -1509,7 +1562,7 @@ pub async fn force_delete_instance(
                 .old_config
                 .interfaces
                 .iter()
-                .filter_map(|x| match x.network_details {
+                .filter_map(|x| match &x.network_details {
                     Some(NetworkDetails::VpcPrefixId(_)) => x.network_segment_id,
                     _ => None,
                 }),
@@ -1517,7 +1570,7 @@ pub async fn force_delete_instance(
     }
 
     network_segment_ids_with_vpc.extend(instance.config.network.interfaces.iter().filter_map(
-        |x| match x.network_details {
+        |x| match &x.network_details {
             Some(NetworkDetails::VpcPrefixId(_)) => x.network_segment_id,
             _ => None,
         },
@@ -1525,7 +1578,7 @@ pub async fn force_delete_instance(
 
     let network_segments_set: std::collections::HashSet<::carbide_uuid::network::NetworkSegmentId> =
         network_segment_ids_with_vpc.drain(..).collect();
-    network_segment_ids_with_vpc.extend(network_segments_set.into_iter());
+    network_segment_ids_with_vpc.extend(network_segments_set);
 
     // Mark all network ready for delete which were created for vpc_prefixes.
     if !network_segment_ids_with_vpc.is_empty() {

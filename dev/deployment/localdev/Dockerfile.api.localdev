@@ -24,4 +24,5 @@ COPY .skaffold/target/carbide-admin-cli/debug/carbide-admin-cli /opt/carbide/
 RUN ln -s /opt/carbide/carbide-admin-cli /opt/carbide/forge-admin-cli
 COPY crates/api/casbin-policy.csv /opt/carbide/
 COPY pxe/static/blobs/internal/aarch64/secure-boot-pk.pem /forge-boot-artifacts/blobs/internal/aarch64/secure-boot-pk.pem
+COPY pxe/static/blobs/internal/aarch64/preingestion.bfb /forge-boot-artifacts/blobs/internal/aarch64/preingestion.bfb
 ENV CASBIN_POLICY_FILE=/opt/carbide/casbin-policy.csv

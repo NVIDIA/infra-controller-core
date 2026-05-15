@@ -31,6 +31,7 @@ use rpc::forge::IdentifySerialResponse;
 use rpc::forge::forge_server::Forge;
 use uuid::Uuid;
 
+use super::Base;
 use crate::api::Api;
 
 pub async fn find(
@@ -168,7 +169,7 @@ async fn find_by_mac(state: Arc<Api>, mac: mac_address::MacAddress) -> impl Into
             Redirect::to(&format!("/admin/explored-endpoint/{}", out.primary_key)).into_response()
         }
         // If the search got this far it doesn't have an machine_interface, so it's Unseen
-        ExpectedMachine => Redirect::to("/admin/expected-machine?filter=unseen").into_response(),
+        ExpectedMachine => Redirect::to("/admin/expected-machine?tab=unseen").into_response(),
 
         DpaInterface => Redirect::to(&format!("/admin/dpa/{}", out.primary_key)).into_response(),
     }
@@ -210,6 +211,8 @@ struct IpMatch {
     message: String,
 }
 
+/// Renders the IP search page via the API `find_ip_address` handler, including `StaticBmcIp`
+/// matches for operator-configured BMC addresses.
 async fn find_ip(state: Arc<Api>, ip: &str) -> impl IntoResponse {
     let mut found = Vec::new();
     let req = forgerpc::FindIpAddressRequest { ip: ip.to_string() };
@@ -247,6 +250,8 @@ async fn find_ip(state: Arc<Api>, ip: &str) -> impl IntoResponse {
             InstanceAddress => ("Instance", format!("/admin/instance/{owner}")),
             MachineAddress => ("Machine", format!("/admin/machine/{owner}")),
             BmcIp => ("BMC IP", format!("/admin/machine/{owner}")),
+            // Operator/reserved BMC (static allocation or static-assignments segment); see finder.
+            StaticBmcIp => ("Static BMC IP", format!("/admin/machine/{owner}")),
             ExploredEndpoint => (
                 "Explored Endpoint",
                 format!("/admin/explored-endpoint/{owner}"),
@@ -268,3 +273,5 @@ async fn find_ip(state: Arc<Api>, ip: &str) -> impl IntoResponse {
     };
     (StatusCode::OK, Html(tmpl.render().unwrap()))
 }
+
+impl super::Base for IpFinder {}

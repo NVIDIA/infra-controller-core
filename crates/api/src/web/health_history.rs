@@ -25,14 +25,15 @@ use axum::response::{Html, IntoResponse, Response};
 use carbide_uuid::machine::MachineId;
 use hyper::http::StatusCode;
 
-use super::health::{MachineHealthHistoryRecord, MachineHealthHistoryTable, fetch_health_history};
+use super::Base;
+use super::health::{HealthHistoryRecord, HealthHistoryTable, fetch_health_history};
 use crate::api::Api;
 
 #[derive(Template)]
 #[template(path = "machine_health_history.html")]
 struct MachineHealth {
     id: String,
-    history: MachineHealthHistoryTable,
+    history: HealthHistoryTable,
 }
 
 /// Show the health history for a certain Machine
@@ -47,7 +48,7 @@ pub async fn show_health_history(
 
     let display = MachineHealth {
         id: machine_id.to_string(),
-        history: MachineHealthHistoryTable { records },
+        history: HealthHistoryTable { records },
     };
 
     (StatusCode::OK, Html(display.render().unwrap())).into_response()
@@ -67,16 +68,10 @@ pub async fn show_health_history_json(
 pub async fn fetch_health_records(
     api: &Api,
     machine_id: &str,
-) -> Result<(MachineId, Vec<MachineHealthHistoryRecord>), (http::StatusCode, String)> {
+) -> Result<(MachineId, Vec<HealthHistoryRecord>), (http::StatusCode, String)> {
     let Ok(machine_id) = MachineId::from_str(machine_id) else {
         return Err((StatusCode::BAD_REQUEST, "invalid machine id".to_string()));
     };
-    if machine_id.machine_type().is_dpu() {
-        return Err((
-            StatusCode::NOT_FOUND,
-            "no health for dpu. see host machine instead".to_string(),
-        ));
-    }
 
     let health_records = match fetch_health_history(api, &machine_id).await {
         Ok(records) => records,
@@ -88,3 +83,5 @@ pub async fn fetch_health_records(
 
     Ok((machine_id, health_records))
 }
+
+impl super::Base for MachineHealth {}

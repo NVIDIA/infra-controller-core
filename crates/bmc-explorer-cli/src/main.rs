@@ -1,27 +1,28 @@
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-License-Identifier: Apache-2.0
  *
- * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
- * property and proprietary rights in and to this material, related
- * documentation and any modifications thereto. Any use, reproduction,
- * disclosure or distribution of this material and related documentation
- * without an express license agreement from NVIDIA CORPORATION or
- * its affiliates is strictly prohibited.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
-
-// Needed because of using nv-redfish that has deep structures.
-#![recursion_limit = "256"]
 
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Instant;
 
 use arc_swap::ArcSwap;
-use carbide::{
-    BmcEndpointExplorer, IPMIToolTestImpl, NvRedfishClientPool, RedfishClientPoolImpl,
-    SiteExplorerExploreMode,
-};
+use carbide_redfish::nv_redfish::NvRedfishClientPool;
+use carbide_site_explorer::BmcEndpointExplorer;
+use carbide_site_explorer::config::SiteExplorerExploreMode;
 use clap::Parser;
 use forge_secrets::credentials::{Credentials, TestCredentialManager};
 use mac_address::MacAddress;
@@ -77,16 +78,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         password: args.password,
     };
 
-    let rf_pool = libredfish::RedfishClientPool::builder().build()?;
+    let rf_pool = libredfish::RedfishClientPool::builder()
+        .danger_accept_invalid_certs()
+        .build()?;
     let proxy_address = Arc::new(ArcSwap::new(None.into()));
     let credential_provider = Arc::new(TestCredentialManager::new(fallback_credentials.clone()));
 
-    let redfish_client_pool = Arc::new(RedfishClientPoolImpl::new(
+    let redfish_client_pool = carbide_redfish::libredfish::new_pool(
         credential_provider.clone(),
         rf_pool,
         proxy_address.clone(),
-    ));
-    let ipmi_tool = Arc::new(IPMIToolTestImpl {});
+    );
     let mode = match args.mode.as_str() {
         "libredfish" => SiteExplorerExploreMode::LibRedfish,
         "nv-redfish" => SiteExplorerExploreMode::NvRedfish,
@@ -103,7 +105,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let explorer = BmcEndpointExplorer::new(
         redfish_client_pool,
         Arc::new(NvRedfishClientPool::new(proxy_address)),
-        ipmi_tool,
+        carbide_ipmi::test_support(),
         credential_provider.clone(),
         rotate_switch_nvos_credentials,
         mode,
@@ -121,6 +123,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     bmc_ip_address,
                     fallback_credentials.clone(),
                     args.boot_mac,
+                    None,
                 )
                 .await?;
         }
@@ -134,7 +137,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .generate_exploration_report(
                         bmc_ip_address,
                         fallback_credentials.clone(),
-                        args.boot_mac
+                        args.boot_mac,
+                        None,
                     )
                     .await?,
             )

@@ -20,6 +20,7 @@ use std::time::SystemTime;
 
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine_validation::MachineValidationId;
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::vpc::VpcPrefixId;
 use model::instance::config::network::DeviceLocator;
@@ -201,7 +202,9 @@ pub fn single_interface_network_config(segment_id: NetworkSegmentId) -> rpc::Ins
             device_instance: 0,
             virtual_function_id: None,
             ip_address: None,
+            ipv6_interface_config: None,
         }],
+        auto: false,
     }
 }
 
@@ -218,6 +221,7 @@ pub fn single_interface_network_config_with_vfs(
         device_instance: 0,
         virtual_function_id: None,
         ip_address: None,
+        ipv6_interface_config: None,
     }];
 
     interfaces.extend(
@@ -229,10 +233,14 @@ pub fn single_interface_network_config_with_vfs(
             device_instance: 0,
             virtual_function_id: Some(function_id as u32),
             ip_address: None,
+            ipv6_interface_config: None,
         }),
     );
 
-    rpc::InstanceNetworkConfig { interfaces }
+    rpc::InstanceNetworkConfig {
+        interfaces,
+        auto: false,
+    }
 }
 
 pub fn interface_network_config_with_devices(
@@ -250,9 +258,13 @@ pub fn interface_network_config_with_devices(
             device_instance: dl.device_instance as u32,
             virtual_function_id: None,
             ip_address: None,
+            ipv6_interface_config: None,
         })
         .collect();
-    rpc::InstanceNetworkConfig { interfaces }
+    rpc::InstanceNetworkConfig {
+        interfaces,
+        auto: false,
+    }
 }
 
 pub fn single_interface_network_config_with_vpc_prefix(
@@ -267,16 +279,18 @@ pub fn single_interface_network_config_with_vpc_prefix(
             device_instance: 0u32,
             virtual_function_id: None,
             ip_address: None,
+            ipv6_interface_config: None,
         }],
+        auto: false,
     }
 }
 
-pub fn default_os_config() -> rpc::forge::OperatingSystem {
-    rpc::forge::OperatingSystem {
+pub fn default_os_config() -> rpc::forge::InstanceOperatingSystemConfig {
+    rpc::forge::InstanceOperatingSystemConfig {
         phone_home_enabled: false,
         run_provisioning_instructions_on_every_boot: false,
         user_data: Some("SomeRandomData".to_string()),
-        variant: Some(rpc::forge::operating_system::Variant::Ipxe(
+        variant: Some(rpc::forge::instance_operating_system_config::Variant::Ipxe(
             rpc::forge::InlineIpxe {
                 ipxe_script: "SomeRandomiPxe".to_string(),
                 user_data: Some("SomeRandomData".to_string()),
@@ -544,7 +558,7 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(env: &TestEnv, mh: &Te
             validation_state: ValidationState::MachineValidation {
                 machine_validation: MachineValidatingState::MachineValidating {
                     context: "Cleanup".to_string(),
-                    id: uuid::Uuid::default(),
+                    id: MachineValidationId::new(),
                     completed: 1,
                     total: 1,
                     is_enabled: true,
@@ -570,11 +584,9 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(env: &TestEnv, mh: &Te
     };
 
     let response = mh.host().forge_agent_control().await;
-    let uuid = &response.data.unwrap().pair[1].value;
+    let validation_id = &response.data.unwrap().pair[1].value;
 
-    machine_validation_result.validation_id = Some(rpc::Uuid {
-        value: uuid.to_owned(),
-    });
+    machine_validation_result.validation_id = Some(validation_id.parse().unwrap());
     persist_machine_validation_result(env, machine_validation_result.clone()).await;
 
     let mut txn = env.pool.begin().await.unwrap();

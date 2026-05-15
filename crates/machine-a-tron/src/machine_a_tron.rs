@@ -18,6 +18,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use futures::future::try_join_all;
+use rpc::forge::VpcVirtualizationType;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
@@ -96,20 +97,27 @@ impl MachineATron {
             })
             .collect();
 
-        for machine in &machines {
-            // Inform the API that we have finished our reboot (ie. scout is now running)
-            self.app_context
-                .api_client()
-                .add_expected_machine(
-                    machine.host_info().bmc_mac_address.to_string(),
-                    machine.host_info().serial.clone(),
+        if self.app_context.app_config.register_expected_machines {
+            for machine in &machines {
+                // Inform the API that we have finished our reboot (ie. scout is now running)
+                self.app_context
+                    .api_client()
+                    .add_expected_machine(
+                        machine.host_info().bmc_mac_address.to_string(),
+                        machine.host_info().serial.clone(),
 
-                )
-                .await
-                .inspect_err(|e| {
-                    tracing::warn!(error=?e, "error adding expected machine, likely already ingested");
-                })
-                .ok();
+                    )
+                    .await
+                    .inspect_err(|e| {
+                        tracing::warn!(error=?e, "error adding expected machine, likely already ingested");
+                    })
+                    .ok();
+            }
+        } else {
+            tracing::info!(
+                "register_expected_machines=false; skipping auto-registration of {} mock host(s)",
+                machines.len()
+            );
         }
 
         Ok(machines)
@@ -146,14 +154,21 @@ impl MachineATron {
         }
 
         for (_config_name, config) in self.app_context.app_config.machines.iter() {
+            let network_virtualization_type =
+                parse_network_virtualization_type(config.network_virtualization_type.as_deref());
             for _ in 0..config.vpc_count {
                 let app_context = self.app_context.clone();
-                let vpc = Vpc::new(app_context, tui_event_tx.clone()).await;
+                let vpc = Vpc::new(
+                    app_context,
+                    tui_event_tx.clone(),
+                    network_virtualization_type,
+                )
+                .await;
 
                 for _ in 0..config.subnets_per_vpc {
                     let app_context = self.app_context.clone();
 
-                    match Subnet::new(app_context, tui_event_tx.clone(), &vpc.vpc_name).await {
+                    match Subnet::new(app_context, tui_event_tx.clone(), &vpc).await {
                         Ok(subnet) => {
                             subnet_handles.push(subnet);
                         }
@@ -290,5 +305,22 @@ impl MachineATron {
 
         tracing::info!("machine-a-tron finished");
         Ok(())
+    }
+}
+
+fn parse_network_virtualization_type(s: Option<&str>) -> Option<VpcVirtualizationType> {
+    match s {
+        Some("etv") => Some(VpcVirtualizationType::EthernetVirtualizer),
+        #[allow(deprecated)]
+        Some("etv_nvue") => Some(VpcVirtualizationType::EthernetVirtualizerWithNvue),
+        Some("fnn") => Some(VpcVirtualizationType::Fnn),
+        Some(other) => {
+            tracing::warn!(
+                network_virtualization_type = other,
+                "Unknown network_virtualization_type, defaulting to None (ETV)"
+            );
+            None
+        }
+        None => None,
     }
 }

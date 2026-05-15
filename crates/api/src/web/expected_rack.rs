@@ -24,7 +24,7 @@ use axum::response::{Html, IntoResponse, Response};
 use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
 
-use super::filters;
+use super::{Base, filters};
 use crate::api::Api;
 
 #[derive(Template)]
@@ -36,7 +36,7 @@ struct ExpectedRacks {
 #[derive(Debug, serde::Serialize)]
 struct ExpectedRackRow {
     rack_id: String,
-    rack_type: String,
+    rack_profile_id: String,
     compute_trays: String,
     switches: String,
     power_shelves: String,
@@ -75,24 +75,6 @@ async fn fetch_expected_racks(
         }
     };
 
-    let rack_response = match super::rack::fetch_racks(api).await {
-        Ok(racks) => racks,
-        Err(err) => {
-            tracing::error!(%err, "fetch_racks");
-            return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Failed to list racks".to_string(),
-            ));
-        }
-    };
-
-    // Index actual racks by their ID for quick lookup.
-    let racks_by_id: std::collections::HashMap<String, &rpc::forge::Rack> = rack_response
-        .racks
-        .iter()
-        .filter_map(|r| r.id.as_ref().map(|id| (id.to_string(), r)))
-        .collect();
-
     let rows = expected_response
         .expected_racks
         .into_iter()
@@ -102,59 +84,36 @@ async fn fetch_expected_racks(
                 .as_ref()
                 .map(|id| id.to_string())
                 .unwrap_or_default();
-            let rack_type = er.rack_type;
+            let rack_profile_id = er
+                .rack_profile_id
+                .as_ref()
+                .map(|id| id.to_string())
+                .unwrap_or_default();
 
-            // Look up capabilities from the rack type config.
-            let capabilities = api.runtime_config.rack_types.get(&rack_type);
+            // Look up capabilities from the rack profile config.
+            let profile = api.runtime_config.rack_profiles.get(&rack_profile_id);
 
-            // Look up the actual rack to count adopted devices.
-            let actual_rack = racks_by_id.get(&rack_id);
-
-            let compute_trays = match (actual_rack, capabilities) {
-                (Some(rack), Some(caps)) => {
-                    format!(
-                        "{}/{}",
-                        rack.expected_compute_trays.len(),
-                        caps.compute.count
-                    )
-                }
-                (None, Some(caps)) => format!("0/{}", caps.compute.count),
-                _ => "?/?".to_string(),
-            };
-
-            let switches = match (actual_rack, capabilities) {
-                (Some(rack), Some(caps)) => {
-                    format!(
-                        "{}/{}",
-                        rack.expected_nvlink_switches.len(),
-                        caps.switch.count
-                    )
-                }
-                (None, Some(caps)) => format!("0/{}", caps.switch.count),
-                _ => "?/?".to_string(),
-            };
-
-            let power_shelves = match (actual_rack, capabilities) {
-                (Some(rack), Some(caps)) => {
-                    format!(
-                        "{}/{}",
-                        rack.expected_power_shelves.len(),
-                        caps.power_shelf.count
-                    )
-                }
-                (None, Some(caps)) => format!("0/{}", caps.power_shelf.count),
-                _ => "?/?".to_string(),
+            // Expected rack profile capabilities for compute trays, switches, and power shelves
+            let (compute_trays, switches, power_shelves) = match profile {
+                Some(rack_profile) => (
+                    rack_profile.rack_capabilities.compute.count,
+                    rack_profile.rack_capabilities.switch.count,
+                    rack_profile.rack_capabilities.power_shelf.count,
+                ),
+                None => (0, 0, 0),
             };
 
             ExpectedRackRow {
                 rack_id,
-                rack_type,
-                compute_trays,
-                switches,
-                power_shelves,
+                rack_profile_id,
+                compute_trays: compute_trays.to_string(),
+                switches: switches.to_string(),
+                power_shelves: power_shelves.to_string(),
             }
         })
         .collect();
 
     Ok(rows)
 }
+
+impl super::Base for ExpectedRacks {}

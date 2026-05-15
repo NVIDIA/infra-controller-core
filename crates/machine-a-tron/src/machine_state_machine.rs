@@ -27,6 +27,7 @@ use bmc_mock::{
     MachineInfo, MockPowerState, POWER_CYCLE_DELAY, SetSystemPowerError, SetSystemPowerResult,
     SystemPowerControl,
 };
+use carbide_network::virtualization::build_dual_stack_list;
 use carbide_uuid::machine::MachineId;
 use rpc::forge::{MachineArchitecture, MachineDiscoveryResult, ManagedHostNetworkConfigResponse};
 use rpc::forge_agent_control_response::Action;
@@ -44,8 +45,7 @@ use crate::dhcp_wrapper::{
 use crate::machine_fsm::{Action as FsmAction, DhcpType, Event, MachineFsm, Timer};
 use crate::machine_state_machine::MachineStateError::MissingMachineId;
 use crate::machine_utils::{
-    PxeError, PxeResponse, forge_agent_control, get_fac_action, get_validation_id,
-    send_pxe_boot_request,
+    PxeError, PxeResponse, forge_agent_control, get_validation_id, send_pxe_boot_request,
 };
 use crate::{PersistedDpuMachine, PersistedHostMachine, dhcp_wrapper};
 
@@ -411,6 +411,12 @@ impl MachineStateMachine {
                     }
                     Err(_) => return Some(self.config.run_interval_working),
                 },
+                FsmAction::BmcEvent(event) => {
+                    if let Some(bmc_state) = &self.bmc_state {
+                        bmc_state.on_event(event)
+                    }
+                    self.actions.pop_front();
+                }
                 FsmAction::InitialDiscoveryRequest(os_image) => {
                     match self.initial_discovery_request(*os_image).await {
                         Ok(None) => {
@@ -567,11 +573,7 @@ impl MachineStateMachine {
     }
 
     async fn pxe_boot_request(&self) -> Result<OsImage, MachineStateError> {
-        let Some(machine_interface_id) = self
-            .machine_dhcp_info
-            .as_ref()
-            .and_then(|info| info.interface_id.as_ref())
-        else {
+        let Some(dhcp_info) = self.machine_dhcp_info.as_ref() else {
             return Err(MachineStateError::MissingInterfaceId);
         };
 
@@ -589,11 +591,8 @@ impl MachineStateMachine {
         let pxe_response = send_pxe_boot_request(
             &self.app_context,
             architecture,
-            *machine_interface_id,
+            dhcp_info.ip_address.into(),
             Some(product),
-            self.machine_dhcp_info
-                .as_ref()
-                .map(|info| info.ip_address.to_string()),
         )
         .await?;
 
@@ -683,24 +682,23 @@ impl MachineStateMachine {
         else {
             return Err(MachineStateError::MachineNotFound(machine_id));
         };
-        let action = get_fac_action(&control_response);
         tracing::trace!(
             "get action took {}ms; action={:?}",
             start.elapsed().as_millis(),
-            action,
+            control_response.action,
         );
 
-        match action {
-            Action::Discovery => self.send_discovery_complete(&machine_id).await?,
-            Action::MachineValidation if os_image == OsImage::Scout => {
+        match &control_response.action {
+            Some(Action::Discovery(_)) => self.send_discovery_complete(&machine_id).await?,
+            Some(Action::MachineValidation(_)) if os_image == OsImage::Scout => {
                 if let Some(validation_id) = get_validation_id(&control_response) {
                     self.app_context
                         .api_client()
-                        .machine_validation_complete(&machine_id, validation_id)
+                        .machine_validation_complete(&machine_id, &validation_id)
                         .await?;
                 }
             }
-            Action::Reset if os_image == OsImage::Scout => {
+            Some(Action::Reset(_)) if os_image == OsImage::Scout => {
                 tracing::debug!("Got Reset action in scout image, sending cleanup_complete");
                 // Wait a bit before confirming the cleanup in order to mimic real
                 // cleanup and give the tests a higher chance to observe teh cleanup state
@@ -710,10 +708,12 @@ impl MachineStateMachine {
                     .cleanup_complete(&machine_id)
                     .await?;
             }
-            Action::Noop => {}
+            Some(Action::Noop(_)) => {}
             _ => {
                 tracing::warn!(
-                    "Unknown action from forge_agent_control: {action:?} for OS image {os_image}"
+                    "Unknown action from forge_agent_control: {:?} for OS image {}",
+                    control_response.action,
+                    os_image,
                 );
             }
         }
@@ -745,11 +745,16 @@ impl MachineStateMachine {
         self.send_network_status_observation(machine_id.to_owned(), &network_config)
             .await?;
 
-        // Launch a DHCP server for the HostMachine to call, if it's not already running.
-        if let (Some(DpuDhcpRelay::DpuEnd(dhcp_relay)), true) = (
-            self.dpu_dhcp_relay.clone(),
-            self.dpu_dhcp_relay_handle.is_none(),
-        ) {
+        // Re-spawn the host-facing DHCP relay with the freshly-fetched
+        // network_config. We do this on every network observation (not
+        // just the first one) because the relay captures the config it
+        // was spawned with -- if we never re-spawn, the relay keeps
+        // returning stale tenant IPs after an instance is released and
+        // managed_host_network_config has switched back to admin-only.
+        // The caller assigns the returned handle into
+        // self.dpu_dhcp_relay_handle, which drops the prior handle and
+        // signals the old relay task to exit.
+        if let Some(DpuDhcpRelay::DpuEnd(dhcp_relay)) = self.dpu_dhcp_relay.clone() {
             Ok(Some(dhcp_relay.spawn(network_config.clone())))
         } else {
             Ok(None)
@@ -816,12 +821,23 @@ impl MachineStateMachine {
                 .admin_interface
                 .as_ref()
                 .expect("use_admin_network true so admin_interface should be Some");
+            let addresses = build_dual_stack_list(
+                iface.ip.clone(),
+                iface.ipv6_interface_config.as_ref().map(|v6| v6.ip.clone()),
+            );
+            let prefixes = build_dual_stack_list(
+                iface.interface_prefix.clone(),
+                iface
+                    .ipv6_interface_config
+                    .as_ref()
+                    .map(|v6| v6.interface_prefix.clone()),
+            );
             interfaces = vec![rpc::forge::InstanceInterfaceStatusObservation {
                 function_type: iface.function_type,
                 virtual_function_id: None,
                 mac_address: self.machine_info.host_mac_address().map(|a| a.to_string()),
-                addresses: vec![iface.ip.clone()],
-                prefixes: vec![iface.interface_prefix.clone()],
+                addresses,
+                prefixes,
                 gateways: vec![iface.gateway.clone()],
                 network_security_group: None,
                 internal_uuid: None,
@@ -831,12 +847,23 @@ impl MachineStateMachine {
                 Some(network_config.instance_network_config_version.clone());
 
             for iface in network_config.tenant_interfaces.iter() {
+                let addresses = build_dual_stack_list(
+                    iface.ip.clone(),
+                    iface.ipv6_interface_config.as_ref().map(|v6| v6.ip.clone()),
+                );
+                let prefixes = build_dual_stack_list(
+                    iface.interface_prefix.clone(),
+                    iface
+                        .ipv6_interface_config
+                        .as_ref()
+                        .map(|v6| v6.interface_prefix.clone()),
+                );
                 interfaces.push(rpc::forge::InstanceInterfaceStatusObservation {
                     function_type: iface.function_type,
                     virtual_function_id: iface.virtual_function_id,
                     mac_address: self.machine_info.host_mac_address().map(|a| a.to_string()),
-                    addresses: vec![iface.ip.clone()],
-                    prefixes: vec![iface.interface_prefix.clone()],
+                    addresses,
+                    prefixes,
                     gateways: vec![iface.gateway.clone()],
                     network_security_group: iface.network_security_group.as_ref().map(|s| {
                         rpc::forge::NetworkSecurityGroupStatus {
@@ -913,6 +940,17 @@ impl MachineStateMachine {
             Arc::new(LiveStateHostnameQuery(self.live_state.clone())),
             self.mat_host_id,
         );
+
+        let pw_override = match &self.machine_info {
+            MachineInfo::Host(_) => self.app_context.app_config.host_bmc_password.as_deref(),
+            MachineInfo::Dpu(_) => self.app_context.app_config.dpu_bmc_password.as_deref(),
+        };
+        if let Some(pw) = pw_override {
+            bmc_mock
+                .state()
+                .account_service_state
+                .change_factory_default_password(pw);
+        }
 
         let maybe_bmc_mock_handle = match &self.app_context.bmc_registration_mode {
             BmcRegistrationMode::None(port) => {

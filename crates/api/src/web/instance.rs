@@ -29,7 +29,7 @@ use hyper::http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
 
-use super::filters;
+use super::{Base, filters};
 use crate::api::Api;
 
 #[derive(Template)]
@@ -177,7 +177,7 @@ async fn fetch_instances(api: Arc<Api>) -> Result<forgerpc::InstanceList, tonic:
         });
         let next_instances = api.find_instances_by_ids(request).await?.into_inner();
 
-        instances.extend(next_instances.instances.into_iter());
+        instances.extend(next_instances.instances);
         offset += page_size;
     }
 
@@ -233,6 +233,7 @@ struct InstanceDetail {
 
 #[derive(Default)]
 struct InstanceOs {
+    os_id: String,
     ipxe_script: String,
     userdata: String,
     run_provisioning_instructions_on_every_boot: bool,
@@ -347,7 +348,7 @@ impl From<forgerpc::Instance> for InstanceDetail {
             .and_then(|config| config.os.as_ref())
             .map(|os| match &os.variant {
                 Some(os_variant) => match os_variant {
-                    forgerpc::operating_system::Variant::Ipxe(ipxe) => InstanceOs {
+                    forgerpc::instance_operating_system_config::Variant::Ipxe(ipxe) => InstanceOs {
                         ipxe_script: ipxe.ipxe_script.clone(),
                         userdata: os
                             .user_data
@@ -356,14 +357,27 @@ impl From<forgerpc::Instance> for InstanceDetail {
                         run_provisioning_instructions_on_every_boot: os
                             .run_provisioning_instructions_on_every_boot,
                         phone_home_enabled: os.phone_home_enabled,
+                        ..Default::default()
                     },
-                    forgerpc::operating_system::Variant::OsImageId(_id) => InstanceOs {
-                        ipxe_script: "".to_string(),
-                        userdata: os.user_data.clone().unwrap_or_default(),
-                        run_provisioning_instructions_on_every_boot: os
-                            .run_provisioning_instructions_on_every_boot,
-                        phone_home_enabled: os.phone_home_enabled,
-                    },
+                    forgerpc::instance_operating_system_config::Variant::OsImageId(_id) => {
+                        InstanceOs {
+                            userdata: os.user_data.clone().unwrap_or_default(),
+                            run_provisioning_instructions_on_every_boot: os
+                                .run_provisioning_instructions_on_every_boot,
+                            phone_home_enabled: os.phone_home_enabled,
+                            ..Default::default()
+                        }
+                    }
+                    forgerpc::instance_operating_system_config::Variant::OperatingSystemId(id) => {
+                        InstanceOs {
+                            os_id: id.to_string(),
+                            userdata: os.user_data.clone().unwrap_or_default(),
+                            run_provisioning_instructions_on_every_boot: os
+                                .run_provisioning_instructions_on_every_boot,
+                            phone_home_enabled: os.phone_home_enabled,
+                            ..Default::default()
+                        }
+                    }
                 },
                 None => InstanceOs::default(),
             })
@@ -477,7 +491,7 @@ async fn get_vpc_map_for_instance(
 ) -> Result<HashMap<VpcId, forgerpc::Vpc>, tonic::Status> {
     let vpc_ids: Vec<VpcId> = network_segments_map
         .values()
-        .filter_map(|ns| ns.vpc_id)
+        .filter_map(|ns| ns.config.as_ref().and_then(|c| c.vpc_id))
         .collect();
 
     let vpc_req = tonic::Request::new(forgerpc::VpcsByIdsRequest { vpc_ids });
@@ -525,11 +539,16 @@ async fn get_interfaces_for_instance_detail(
 
         if let Some(ns_id) = interface.network_segment_id
             && let Some(ns) = network_segments_map.get(&ns_id)
-            && let Some(vpc_id_val) = ns.vpc_id
+            && let Some(vpc_id_val) = ns.config.as_ref().and_then(|c| c.vpc_id)
             && let Some(vpc) = vpc_map.get(&vpc_id_val)
         {
             vpc_id = vpc.id.map(|id| id.to_string()).unwrap_or_default();
-            vpc_name = vpc.name.clone();
+            vpc_name = vpc
+                .metadata
+                .as_ref()
+                .map(|x| x.name.as_str())
+                .unwrap_or("<no name>")
+                .to_string();
         }
 
         let status = &if_status[i];
@@ -620,3 +639,6 @@ pub async fn detail(
     instance_detail.interfaces = instance_detail_interfaces;
     (StatusCode::OK, Html(instance_detail.render().unwrap())).into_response()
 }
+
+impl super::Base for InstanceShow {}
+impl super::Base for InstanceDetail {}

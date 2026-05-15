@@ -126,12 +126,17 @@ async fn convert_instance_to_nice_format(
             "IPXE SCRIPT",
             instance_os
                 .and_then(|os| match os.variant.as_ref() {
-                    Some(::rpc::forge::operating_system::Variant::Ipxe(ipxe_os)) => {
-                        Some(Cow::Borrowed(ipxe_os.ipxe_script.as_str()))
-                    }
-                    Some(::rpc::forge::operating_system::Variant::OsImageId(image)) => {
-                        Some(Cow::Owned(format!("OS Image ID: {}", image.value)))
-                    }
+                    Some(::rpc::forge::instance_operating_system_config::Variant::Ipxe(
+                        ipxe_os,
+                    )) => Some(Cow::Borrowed(ipxe_os.ipxe_script.as_str())),
+                    Some(::rpc::forge::instance_operating_system_config::Variant::OsImageId(
+                        image,
+                    )) => Some(Cow::Owned(format!("OS Image ID: {}", image.value))),
+                    Some(
+                        ::rpc::forge::instance_operating_system_config::Variant::OperatingSystemId(
+                            id,
+                        ),
+                    ) => Some(Cow::Owned(format!("Operating System ID: {}", id))),
                     None => None,
                 })
                 .unwrap_or_default(),
@@ -251,7 +256,8 @@ async fn convert_instance_to_nice_format(
                 (
                     "VPC NAME",
                     vpc.as_ref()
-                        .map(|v| v.name.as_str().into())
+                        .and_then(|v| v.metadata.as_ref())
+                        .map(|v| Cow::Borrowed(v.name.as_str()))
                         .unwrap_or("<not found>".into()),
                 ),
             ];
@@ -354,18 +360,7 @@ async fn convert_instance_to_nice_format(
         writeln!(&mut lines, "NETWORK SECURITY GROUP ID: {nsg_id}")?;
     }
 
-    if let Some(metadata) = instance.metadata.as_ref() {
-        writeln!(
-            &mut lines,
-            "LABELS: {}",
-            metadata
-                .labels
-                .iter()
-                .map(|x| format!("{}: {}", x.key, x.value.as_deref().unwrap_or_default()))
-                .collect::<Vec<String>>()
-                .join(", ")
-        )?;
-    }
+    crate::metadata::write_metadata_in_nice_format(&mut lines, width, instance.metadata.as_ref())?;
 
     Ok(lines)
 }
@@ -392,7 +387,7 @@ fn convert_instances_to_nice_table(instances: forgerpc::InstanceList) -> Box<Tab
             .map(|tenant| tenant.tenant_organization_id.as_str())
             .unwrap_or_default();
 
-        let labels = crate::metadata::get_nice_labels_from_rpc_metadata(instance.metadata.as_ref());
+        let labels = crate::metadata::fmt_labels_as_kv_pairs(instance.metadata.as_ref());
 
         let tenant_state = instance
             .status
@@ -509,7 +504,7 @@ pub async fn handle_show(
             .await?;
 
         match sort_by {
-            SortField::PrimaryId => all_instances.instances.sort_by(|i1, i2| i1.id.cmp(&i2.id)),
+            SortField::PrimaryId => all_instances.instances.sort_by_key(|instance| instance.id),
             SortField::State => all_instances.instances.sort_by(|i1, i2| {
                 let tenant_status1 = i1
                     .status
@@ -564,6 +559,7 @@ pub async fn handle_show(
     Ok(())
 }
 
+#[allow(deprecated)]
 async fn get_vpc_for_interface_network_segment(
     api_client: &ApiClient,
     network_segment_id: NetworkSegmentId,
@@ -576,7 +572,7 @@ async fn get_vpc_for_interface_network_segment(
         && let Some(vpc_id) = network_segments
             .network_segments
             .first()
-            .and_then(|s| s.vpc_id)
+            .and_then(|s| s.config.as_ref().and_then(|c| c.vpc_id).or(s.vpc_id))
     {
         let vpc_ids: Vec<VpcId> = vec![vpc_id];
         Ok(api_client

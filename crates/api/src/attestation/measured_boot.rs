@@ -289,7 +289,7 @@ pub fn event_log_to_string(event_log: &Option<Vec<u8>>) -> String {
 pub async fn compare_pub_key_against_cert(
     txn: &mut PgConnection,
     machine_id: &MachineId,
-    ek_pub: &Vec<u8>,
+    ek_pub: &[u8],
 ) -> CarbideResult<(bool, rsa::RsaPublicKey)> {
     let tpm_ek_cert = get_ek_cert_by_machine_id(txn, machine_id).await?;
     #[cfg(feature = "linux-build")]
@@ -331,8 +331,7 @@ fn attestation_unsupported_error() -> CarbideError {
 pub mod linux_build {
     use asn1_rs::FromDer;
     use model::hardware_info::TpmEkCertificate;
-    use num_bigint_dig::BigUint;
-    use rsa::RsaPublicKey;
+    use rsa::{BigUint, RsaPublicKey};
     use sha2::Digest;
     use tss_esapi::structures::Signature::RsaPss;
     use tss_esapi::structures::{Attest, AttestInfo, Public, Signature};
@@ -340,6 +339,7 @@ pub mod linux_build {
     use x509_parser::certificate::X509Certificate;
     use x509_parser::public_key::PublicKey as x509_parser_pub_key;
 
+    use crate::attestation::digest_crate_shim::Sha256LegacyDigestShim;
     use crate::errors::{CarbideError, CarbideResult};
 
     const RSA_PUBKEY_EXPONENT: u32 = 65537u32;
@@ -371,7 +371,7 @@ pub mod linux_build {
 
     pub fn do_compare_pub_key_against_cert(
         tpm_ek_cert: &TpmEkCertificate,
-        ek_pub: &Vec<u8>,
+        ek_pub: &[u8],
     ) -> CarbideResult<(bool, rsa::RsaPublicKey)> {
         // compare the pub key and the cert
 
@@ -406,7 +406,7 @@ pub mod linux_build {
             ))
         })?;
         // construct the Public structure and extract the PublicKeyRsa from it, which is really just the modulus
-        let ek_pub = Public::unmarshall(ek_pub.as_slice()).map_err(|e| {
+        let ek_pub = Public::unmarshall(ek_pub).map_err(|e| {
             CarbideError::AttestBindKeyError(format!("Could not unmarshall EK: {e}"))
         })?;
 
@@ -469,7 +469,7 @@ pub mod linux_build {
         };
 
         match pub_key.verify(
-            rsa::Pss::new::<sha2::Sha256>(),
+            rsa::Pss::new::<Sha256LegacyDigestShim>(),
             &attest_hash,
             rsa_signature.signature().value(),
         ) {
@@ -478,7 +478,6 @@ pub mod linux_build {
         }
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;

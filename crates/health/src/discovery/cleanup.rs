@@ -25,7 +25,7 @@ fn stop_collectors_for_keys(
     kind: CollectorKind,
     removed_keys: &HashSet<Cow<'static, str>>,
 ) {
-    let collectors = ctx.collectors.map_mut_for_kind(kind);
+    let collectors = ctx.collectors.map_mut(kind);
     for key in removed_keys {
         if let Some(collector) = collectors.remove(key) {
             tracing::info!(
@@ -56,6 +56,7 @@ pub(super) fn stop_removed_bmc_collectors(
             remaining_sensors = ctx.collectors.len(CollectorKind::Sensor),
             remaining_collectors = ctx.collectors.len(CollectorKind::Logs),
             remaining_firmware_collectors = ctx.collectors.len(CollectorKind::Firmware),
+            remaining_leak_detector_collectors = ctx.collectors.len(CollectorKind::LeakDetector),
             remaining_nmxt_collectors = ctx.collectors.len(CollectorKind::Nmxt),
             remaining_nvue_rest_collectors = ctx.collectors.len(CollectorKind::NvueRest),
             "Cleaned up removed endpoints"
@@ -81,6 +82,7 @@ mod tests {
             HashMap::from([("b".to_string(), 3), ("c".to_string(), 4)]),
         );
         maps.insert(CollectorKind::Firmware, HashMap::new());
+        maps.insert(CollectorKind::LeakDetector, HashMap::new());
         maps.insert(CollectorKind::Nmxt, HashMap::new());
         maps.insert(CollectorKind::NvueRest, HashMap::new());
 
