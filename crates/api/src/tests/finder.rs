@@ -200,7 +200,7 @@ async fn test_identify_uuid(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         .await
         .unwrap();
     let req = rpc::forge::IdentifyUuidRequest {
-        uuid: Some(segment.vpc_id.unwrap().into()),
+        uuid: Some(segment.config.vpc_id.unwrap().into()),
     };
     let res = env
         .api

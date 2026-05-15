@@ -572,9 +572,10 @@ async fn test_machine_a_tron_zerodpu(
                     .expect("Machine ID should be set if host is ready");
                 tracing::info!("Machine {machine_id} has made it to Ready, allocating instance");
 
-                // Zero-DPU tenants don't pass any network config; the allocator instead
-                // auto-picks a HostInband segment for them (which is covered as part of
-                // the test_zero_dpu_instance_allocation_no_network_config test).
+                // Zero-DPU tenants pass `auto: true` with empty interfaces; the
+                // allocator resolves the host's HostInband segment(s) from the
+                // machine snapshot (which is also covered in unit tests as
+                // `test_zero_dpu_instance_allocation_auto`).
                 let instance_id = instance::create(
                     carbide_api_addrs,
                     &machine_id,
@@ -633,7 +634,9 @@ async fn test_machine_a_tron_singledpu_nic_mode(
 
                 // For a DPU in NIC-mode, the DPU is treated as a plain NIC, meaning
                 // allocation goes through HostInband the same way the zero-DPU path
-                // allocation does; no network config, and the allocator auto-picks.
+                // allocation does; the request carries `auto: true` with empty
+                // interfaces, and Carbide resolves from the host's HostInband
+                // segment(s).
                 let instance_id = instance::create(
                     carbide_api_addrs,
                     &machine_id,

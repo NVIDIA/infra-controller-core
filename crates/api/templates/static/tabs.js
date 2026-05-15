@@ -59,10 +59,21 @@
             history.replaceState(null, '', url.toString());
         }
 
-        const initial = nav.querySelector('.tab-button.active')
-            || nav.querySelector('.tab-button');
-        if (initial) {
-            moveIndicator(initial);
+        // Restore the active tab from the URL on initial load so refreshing
+        // or following a bookmarked link lands on the same tab.
+        const tabFromUrl = new URLSearchParams(window.location.search).get('tab');
+        const urlButton = tabFromUrl
+            ? nav.querySelector('.tab-button[data-tab="' + CSS.escape(tabFromUrl) + '"]')
+            : null;
+
+        if (urlButton && !urlButton.classList.contains('active')) {
+            setActive(urlButton);
+        } else {
+            const initial = nav.querySelector('.tab-button.active')
+                || nav.querySelector('.tab-button');
+            if (initial) {
+                moveIndicator(initial);
+            }
         }
 
         nav.addEventListener('click', function(e) {

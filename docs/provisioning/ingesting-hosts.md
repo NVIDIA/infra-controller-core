@@ -134,7 +134,7 @@ NICo uses Measured Boot using the on-host Trusted Platform Module (TPM) v2.0 to 
 The following command configures NICo to approve all pending machines based on PCR Registers 0, 3, 5, and 6.
 
 ```bash
-carbide-admin-cli -c <api-url> mb site trusted-machine approve \* persist --pcr-registers="0,3,5,6"
+carbide-admin-cli -c <api-url> att mb site trusted-machine approve \* persist --pcr-registers="0,3,5,6"
 ```
 
 ## What Happens After Approval: Ingestion to Ready
@@ -151,7 +151,7 @@ The high-level flow is:
 6. **`BomValidating` / `Validation`**: NICo validates the discovered hardware against the expected SKU. If hardware validation is enabled, the host is rebooted and tested before proceeding.
 7. **`Ready`**: the host transitions through `HostInit/Discovered` and enters the available pool, ready for an instance to be assigned to it.
 
-For the complete state transitions, including substates, retry logic, and reprovision paths, see the [Managed Host State Diagrams](../architecture/state_machines/managedhost.md).
+For the full DPU lifecycle — OS installation, firmware upgrades, health monitoring, and reprovisioning — see [DPU Lifecycle Management](../dpu-management/dpu-lifecycle-management.md). For the complete state transitions, including substates, retry logic, and reprovision paths, see the [Managed Host State Diagrams](../architecture/state_machines/managedhost.md).
 
 ---
 

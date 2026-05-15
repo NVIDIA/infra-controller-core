@@ -391,6 +391,8 @@ mod tests {
             Some(EndpointMetadata::Switch(SwitchData {
                 id: None,
                 serial: "switch-serial-1".to_string(),
+                slot_number: None,
+                tray_index: None,
             })),
             None,
         );

@@ -19,6 +19,7 @@ use std::collections::HashMap;
 
 use carbide_network::virtualization::VpcVirtualizationType;
 use db::dns::domain;
+use db::network_segment::reconcile_network_defs;
 use db::vpc::{self};
 use db::{ObjectColumnFilter, Transaction, dpu_agent_upgrade_policy, network_segment};
 use itertools::Itertools;
@@ -82,19 +83,29 @@ pub async fn create_initial_networks(
         return Ok(());
     }
     let domain_id = all_domains[0].id;
+    reconcile_network_defs(&mut txn, networks).await?;
+
     for (name, def) in networks {
         if db::network_segment::find_by_name(&mut txn, name)
             .await
             .is_ok()
         {
-            // Network segments are only created the first time we start carbide-api
+            // Network segments are only created the first time we start carbide-api;
+            // `reconcile_network_defs` above has already recorded the snapshot if
+            // it was missing (the backfill path).
             tracing::debug!("Network segment {name} exists");
             continue;
         }
         let mut ns = NewNetworkSegment::build_from(name, domain_id, def)?;
         ns.can_stretch = Some(true);
+        // Capture before `save` moves `ns`. `insert_network_def` needs
+        // the id because `network_def.segment_id` is FK-bound to it.
+        let segment_id = ns.id;
         // update_network_segments_svi_ip will take care of allocating svi ip.
         crate::handlers::network_segment::save(api, &mut txn, ns, true, false).await?;
+        // Snapshot the network definition in the same transaction as the network_segment row,
+        // so the two stay consistent across restarts.
+        db::network_segment::insert_network_def(&mut txn, name, segment_id, def).await?;
         tracing::info!("Created network segment {name}");
     }
 
@@ -156,10 +167,13 @@ pub async fn update_network_segments_svi_ip(db_pool: &Pool<Postgres>) -> Result<
 
     let all_segments = all_segments
         .into_iter()
-        .filter(|x| x.can_stretch.is_some_and(|x| x))
+        .filter(|x| x.status.can_stretch.is_some_and(|x| x))
         .collect::<Vec<_>>();
 
-    let all_vpcs_ids = all_segments.iter().filter_map(|x| x.vpc_id).collect_vec();
+    let all_vpcs_ids = all_segments
+        .iter()
+        .filter_map(|x| x.config.vpc_id)
+        .collect_vec();
     let all_vpcs = db::vpc::find_by(
         &mut txn,
         ObjectColumnFilter::List(vpc::IdColumn, &all_vpcs_ids),
@@ -175,7 +189,7 @@ pub async fn update_network_segments_svi_ip(db_pool: &Pool<Postgres>) -> Result<
 
     // Allocate SVI IP for the segments attached to a FNN VPC.
     for segment in all_segments {
-        let Some(vpc_id) = segment.vpc_id else {
+        let Some(vpc_id) = segment.config.vpc_id else {
             continue;
         };
 
@@ -251,7 +265,7 @@ pub(crate) async fn create_admin_vpc(
 
     if let Some(existing_vpc) = existing_vpc.first() {
         for admin_segment in admin_segments {
-            if let Some(vpc_id) = admin_segment.vpc_id {
+            if let Some(vpc_id) = admin_segment.config.vpc_id {
                 if vpc_id != existing_vpc.id {
                     return Err(CarbideError::internal(format!(
                         "Mismatch found in admin vpc id {} and admin network segment's attached vpc id {vpc_id}.",

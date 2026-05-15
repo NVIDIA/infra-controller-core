@@ -245,6 +245,7 @@ pub(crate) async fn resolve_cloud_init_instructions(
                                 .map(|b| b.vf_intercept_bridge_sf.clone())
                         },
                     ),
+                    num_of_vfs: Some(api.runtime_config.dpu_config.num_of_vfs),
                 }),
                 metadata,
                 api_url_override,

@@ -4,13 +4,20 @@
 
 {% block content %}
 <div id="json">
-    {% if has_machine %}
-    <a id="delete-link" class="disabled" href="#" onclick="return false;">Delete</a>
-    {% else %}
+    {% if !has_machine %}
     <a id="delete-link" href="#" onclick="if(confirm('Are you sure you want to delete this endpoint?')) { document.getElementById('delete-form').submit(); } return false;">Delete</a>
     {% endif %}
     <a id="logs-link" href="" target="_blank">Logs</a>
     <a id="json-link" href="">JSON</a>
+    <a id="refresh-endpoint" href="#" title="Refresh this endpoint's report immediately. If you stay on this page, you will see the status message and spinner until the refresh finishes." aria-label="Refresh endpoint report">
+        <span>Refresh</span>
+        <svg class="refresh-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21.5 2v6h-6"/>
+            <path d="M2.5 22v-6h6"/>
+            <path d="M2.5 11.5a10 10 0 0 1 18.8-4.3"/>
+            <path d="M21.5 12.5a10 10 0 0 1-18.8 4.2"/>
+        </svg>
+    </a>
 </div>
 
 <form id="delete-form" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/delete" hidden>
@@ -69,7 +76,7 @@
 			{% if has_exploration_error %}
 			<span class="bubble error">Error while exploring endpoint, report may be outdated</span>
 			{% else %}
-			<span class="bubble">Last updated {{ report_age }} ago</span>
+			<span class="bubble">Last updated {{ report_age }}</span>
 			{% endif %}
 		</td></tr>
 	</table>
@@ -91,20 +98,6 @@
 			</td>
 		</tr>
 		{% endif %}
-		<tr>
-			<th>Exploration Requested</th>
-			<td class="action-cell">
-				<div><span class="bubble {% if endpoint.exploration_requested %}warning{% endif %}">{{ endpoint.exploration_requested }}</span></div>
-				{% if !endpoint.exploration_requested %}
-				<div>
-					<form id="reexplore_action" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/reexplore">
-						<input type="hidden" name="if_version_match" value="{{ endpoint.report_version }}"/>
-						<input type="submit" value="Request re-exploration">
-					</form>
-				</div>
-				{% endif %}
-			</td>
-		</tr>
 		<tr>
 			<th>Power Actions</th>
 			<td class="action-cell">
@@ -183,6 +176,18 @@
 						<form id="clear_credentials" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/clear-credentials" class="config-card-action">
 							<div class="config-card-reminder">Deletes credentials from vault.</div>
 							<input type="submit" class="delete-button" value="Clear Credentials">
+							<span class="action-spinner"></span>
+						</form>
+					</div>
+					<!-- Exploration Requested Card -->
+					<div class="config-card">
+						<div class="config-card-header">
+							<div class="config-card-title">Exploration</div>
+							<span class="bubble {% if endpoint.exploration_requested %}warning{% endif %}">{% if endpoint.exploration_requested %}Queued{% else %}Not queued{% endif %}</span>
+						</div>
+						<div class="config-card-reminder">Prioritizes endpoint in next run.</div>
+						<form id="reexplore_action" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/reexplore" class="config-card-action">
+							<input type="submit" value="Request Re-Exploration"{% if endpoint.exploration_requested %} class="disabled" disabled title="Re-exploration already queued for this endpoint"{% endif %}>
 							<span class="action-spinner"></span>
 						</form>
 					</div>
@@ -486,6 +491,47 @@
 document.addEventListener('DOMContentLoaded', function() {
 	const bmcIp = "{{ endpoint.address }}";
 	document.getElementById('logs-link').href = buildGrafanaLogsUrl(bmcIp);
+
+	var refreshToast = sessionStorage.getItem('refreshToast');
+	if (refreshToast) {
+		sessionStorage.removeItem('refreshToast');
+		try {
+			var t = JSON.parse(refreshToast);
+			showToast(t.message, t.error);
+		} catch(e) {
+			showToast(refreshToast);
+		}
+	}
+
+	var refreshBtn = document.getElementById('refresh-endpoint');
+	if (refreshBtn) {
+		window.addEventListener('pageshow', function(e) {
+			if (e.persisted) refreshBtn.classList.remove('refresh-spinning');
+		});
+		refreshBtn.addEventListener('click', function(e) {
+			e.preventDefault();
+			if (refreshBtn.classList.contains('refresh-spinning')) return;
+			refreshBtn.classList.add('refresh-spinning');
+			fetch('/admin/explored-endpoint/' + encodeURIComponent(bmcIp) + '/refresh', { method: 'POST' })
+				.then(function(res) {
+					return res.json().catch(function() { return {}; }).then(function(body) {
+						if (res.ok) {
+							sessionStorage.setItem('refreshToast', JSON.stringify({
+								message: 'Report Refreshed',
+								error: body.has_exploration_error || false
+							}));
+						} else {
+							sessionStorage.setItem('refreshToast', JSON.stringify({
+								message: body.error || 'Refresh failed',
+								error: true
+							}));
+						}
+						window.location.reload();
+					});
+				})
+				.catch(function() { window.location.reload(); });
+		});
+	}
 });
 </script>
 

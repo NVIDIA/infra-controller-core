@@ -17,8 +17,7 @@
 
 //! gRPC handlers for machine identity: JWT-SVID signing, JWKS, and OpenID discovery.
 //! PEM/JWK encoding helpers live in `crate::machine_identity`; persisted config in `tenant_identity_config`.
-
-use std::convert::TryFrom;
+//! Public signing metadata uses `signing_key_public_*` JSON (`kid`, `alg`, `public_pem`).
 
 use ::rpc::forge::{
     self as rpc, Jwks, JwksKind, JwksRequest, MachineIdentityResponse, OpenIdConfigRequest,
@@ -71,7 +70,10 @@ async fn load_enabled_identity_for_well_known(
         .database_connection
         .with_txn(|txn| {
             let org_id = org_id.clone();
-            Box::pin(async move { tenant_identity_config::find(&org_id, txn).await })
+            Box::pin(async move {
+                tenant_identity_config::gc_expired_non_active_signing_key(&org_id, txn).await?;
+                tenant_identity_config::find(&org_id, txn).await
+            })
         })
         .await??;
     match cfg {
@@ -82,6 +84,23 @@ async fn load_enabled_identity_for_well_known(
         }
         .into()),
     }
+}
+
+fn push_jwk_from_signing_public_doc(
+    keys: &mut Vec<serde_json::Value>,
+    doc: &model::tenant::identity_config::SigningKeyPublicV1,
+    jwk_key_use: crate::machine_identity::JwkPublicKeyUse,
+) -> Result<(), CarbideError> {
+    keys.push(
+        crate::machine_identity::public_pem_to_jwk_value(
+            doc.public_pem(),
+            doc.kid(),
+            doc.alg().as_jwt_alg_str(),
+            jwk_key_use,
+        )
+        .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?,
+    );
+    Ok(())
 }
 
 /// SPIFFE `sub` claim: stored prefix plus `/<machine-id>` (single slash join).
@@ -172,17 +191,22 @@ pub(crate) async fn sign_machine_identity(
         &identity_row.encryption_key_id,
     )
     .await?;
-    let private_pem = key_encryption::decrypt(identity_row.encrypted_signing_key.as_str(), &aes)
-        .map_err(|e| {
-            tracing::error!(
-                error = %e,
-                org_id = %identity_row.organization_id.as_str(),
-                "tenant signing key decrypt failed"
-            );
-            CarbideError::internal("stored signing key could not be decrypted".to_string())
-        })?;
+    let enc_key = identity_row
+        .current_encrypted_signing_key()
+        .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?;
+    let private_pem = key_encryption::decrypt(enc_key.as_str(), &aes).map_err(|e| {
+        tracing::error!(
+            error = %e,
+            org_id = %identity_row.organization_id.as_str(),
+            "tenant signing key decrypt failed"
+        );
+        CarbideError::internal("stored signing key could not be decrypted".to_string())
+    })?;
 
-    let signer = Es256Signer::new(&private_pem, &identity_row.key_id)
+    let active_pub = identity_row
+        .current_signing_public()
+        .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?;
+    let signer = Es256Signer::new(&private_pem, active_pub.kid())
         .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?;
 
     let now = Utc::now().timestamp();
@@ -314,14 +338,26 @@ pub(crate) async fn get_jwks(
 
     let cfg = load_enabled_identity_for_well_known(api, &org_id).await?;
 
-    let jwk = crate::machine_identity::public_pem_to_jwk_value(
-        cfg.signing_key_public.as_ref(),
-        cfg.key_id.as_ref(),
-        cfg.algorithm.as_jwt_alg_str(),
-        jwk_key_use,
-    )
-    .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?;
-    let jwks = crate::machine_identity::jwks_document_string(&jwk)
+    let mut keys: Vec<serde_json::Value> = Vec::new();
+    if let Some(ref doc) = cfg.signing_key_public_1 {
+        push_jwk_from_signing_public_doc(&mut keys, &doc.0, jwk_key_use)?;
+    }
+    if let Some(ref doc) = cfg.signing_key_public_2 {
+        push_jwk_from_signing_public_doc(&mut keys, &doc.0, jwk_key_use)?;
+    }
+    keys.sort_by(|a, b| {
+        let ka = a.get("kid").and_then(|v| v.as_str()).unwrap_or("");
+        let kb = b.get("kid").and_then(|v| v.as_str()).unwrap_or("");
+        ka.cmp(kb)
+    });
+    if keys.is_empty() {
+        return Err(CarbideError::NotFoundError {
+            kind: "tenant_identity_config",
+            id: org_id.as_str().to_string(),
+        }
+        .into());
+    }
+    let jwks = crate::machine_identity::jwks_document_string(&keys)
         .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?;
 
     Ok(Response::new(Jwks { jwks }))
@@ -356,13 +392,20 @@ pub(crate) async fn get_open_id_configuration(
         .into());
     }
 
+    let active_pub = cfg
+        .current_signing_public()
+        .map_err(|_| CarbideError::NotFoundError {
+            kind: "tenant_identity_config",
+            id: org_id.as_str().to_string(),
+        })?;
+
     Ok(Response::new(OpenIdConfiguration {
         issuer: cfg.issuer.as_str().to_string(),
         jwks_uri: jwks_uri_for_issuer(cfg.issuer.as_ref()),
         spiffe_jwks_uri: spiffe_jwks_uri_for_issuer(cfg.issuer.as_ref()),
         response_types_supported: vec!["token".into()],
         subject_types_supported: vec!["public".into()],
-        id_token_signing_alg_values_supported: vec![cfg.algorithm.to_string()],
+        id_token_signing_alg_values_supported: vec![active_pub.alg().to_string()],
     }))
 }
 

@@ -149,7 +149,7 @@ impl JwkPublicKeyUse {
     }
 }
 
-/// Maps `tenant_identity_config.signing_key_public` (SPKI PEM) into one RFC 7517 JWK JSON object.
+/// Maps `public_pem` (SPKI PEM) into one RFC 7517 JWK JSON object.
 pub fn public_pem_to_jwk_value(
     public_key_pem: &str,
     kid: &str,
@@ -185,9 +185,14 @@ pub fn public_pem_to_jwk_value(
     }))
 }
 
-/// Serializes `{"keys":[ key ]}` as compact UTF-8 JSON for gRPC [`rpc::forge::Jwks::jwks`].
-pub fn jwks_document_string(key: &Value) -> Result<String, JwkBuildError> {
-    let doc = serde_json::json!({ "keys": [key] });
+/// Serializes `{"keys":[ ... ]}` as compact UTF-8 JSON for gRPC [`rpc::forge::Jwks::jwks`].
+pub fn jwks_document_string(keys: &[Value]) -> Result<String, JwkBuildError> {
+    if keys.is_empty() {
+        return Err(JwkBuildError(
+            "JWKS document requires at least one verification key".into(),
+        ));
+    }
+    let doc = serde_json::json!({ "keys": keys });
     serde_json::to_string(&doc).map_err(|e| JwkBuildError(format!("serialize JWKS document: {e}")))
 }
 

@@ -1223,6 +1223,7 @@ pub fn get_config() -> CarbideConfig {
             dpu_models: dpu_fw_example(),
             dpu_nic_firmware_update_versions: vec!["24.42.1000".to_string()],
             dpu_enable_secure_boot: true,
+            num_of_vfs: crate::cfg::file::DEFAULT_DPU_NUM_OF_VFS,
         },
         host_models: host_firmware_example(),
         firmware_global: FirmwareGlobal::test_default(),
@@ -1765,6 +1766,7 @@ pub async fn create_test_env_with_overrides(
         power_states: Arc::new(std::sync::Mutex::new(Default::default())),
         redfish_power_control_calls: Arc::new(std::sync::Mutex::new(Default::default())),
         set_nic_mode_calls: Arc::new(std::sync::Mutex::new(Default::default())),
+        explore_endpoint_calls: Arc::new(std::sync::Mutex::new(Default::default())),
     };
 
     // The API server is launched with a disabled site-explorer config so that it doesn't launch one

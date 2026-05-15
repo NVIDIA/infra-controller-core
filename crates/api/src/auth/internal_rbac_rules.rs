@@ -92,6 +92,10 @@ impl InternalRBACRules {
             "FindNetworkSegmentsByIds",
             vec![ForgeAdminCLI, Machineatron, SiteAgent],
         );
+        x.perm(
+            "FindNetworkSegmentStateHistories",
+            vec![ForgeAdminCLI, Machineatron, SiteAgent],
+        );
         x.perm("CreateNetworkSegment", vec![Machineatron, SiteAgent]);
         x.perm(
             "DeleteNetworkSegment",
@@ -254,6 +258,7 @@ impl InternalRBACRules {
         x.perm("IsBmcInManagedHost", vec![ForgeAdminCLI]);
         x.perm("Explore", vec![ForgeAdminCLI, Flow]);
         x.perm("ReExploreEndpoint", vec![ForgeAdminCLI, Flow]);
+        x.perm("RefreshEndpointReport", vec![ForgeAdminCLI, Flow]);
         x.perm("DeleteExploredEndpoint", vec![ForgeAdminCLI]);
         x.perm("PauseExploredEndpointRemediation", vec![ForgeAdminCLI]);
         x.perm("FindExploredEndpointIds", vec![ForgeAdminCLI, Flow]);

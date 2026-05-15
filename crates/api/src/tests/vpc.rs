@@ -857,7 +857,7 @@ async fn create_admin_vpc(pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let admin_segments = db::network_segment::admin(&mut txn).await?;
 
     for admin_segment in admin_segments {
-        assert_eq!(admin_vpc.id, admin_segment.vpc_id.unwrap());
+        assert_eq!(admin_vpc.id, admin_segment.config.vpc_id.unwrap());
     }
 
     Ok(())

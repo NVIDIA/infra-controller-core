@@ -152,6 +152,9 @@
 {% set bmc_action_redirect_to = Some(format!("/admin/machine/{}#bmc_info_view", self.id)) %}
 <table class="detailsview">
 	<tr><th>IP</th><td><a href="/admin/explored-endpoint/{{ bmc_ip }}">{{ bmc_ip }}</a></td></tr>
+	{% if let Some(machine_interface_id) = bmc_info.machine_interface_id %}
+	<tr><th>Machine Interface ID</th><td><a href="/admin/interface/{{ machine_interface_id }}">{{ machine_interface_id }}</a></td></tr>
+	{% endif %}
 	<tr><th>Port</th><td>{{ bmc_info.port|option_fmt }}</td></tr>
 	<tr><th>MAC Address</th><td>{{ bmc_info.mac|option_fmt }}</td></tr>
 	<tr><th>Version</th><td>{{ bmc_info.version|option_fmt }}</td></tr>

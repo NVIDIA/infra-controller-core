@@ -228,6 +228,7 @@ service Forge {
   rpc FindPowerShelfStateHistories(PowerShelfStateHistoriesRequest) returns (StateHistories);
   rpc FindRackStateHistories(RackStateHistoriesRequest) returns (StateHistories);
   rpc FindSwitchStateHistories(SwitchStateHistoriesRequest) returns (StateHistories);
+  rpc FindNetworkSegmentStateHistories(NetworkSegmentStateHistoriesRequest) returns (StateHistories);
   rpc FindTenantOrganizationIds(TenantSearchFilter) returns (TenantOrganizationIdList);
   rpc FindTenantsByOrganizationIds(TenantByOrganizationIdsRequest) returns (TenantList);
   rpc FindConnectedDevicesByDpuMachineIds(common.MachineIdList) returns (ConnectedDeviceList);
@@ -283,6 +284,12 @@ service Forge {
   // Prioritizes the exploration of a certain endpoint in the next regular site-explorer run
   // The results of this run will be persisted in the database
   rpc ReExploreEndpoint(ReExploreEndpointRequest) returns (google.protobuf.Empty);
+  // Immediately probes a single BMC endpoint via Redfish, enriches the report
+  // (machine_id, model, position), and persists it. The next site-explorer tick
+  // picks up the freshly persisted report for downstream processing (pairing,
+  // remediation, audit). Returns AlreadyExists
+  // if a concurrent refresh or periodic probe is already in progress.
+  rpc RefreshEndpointReport(RefreshEndpointReportRequest) returns (site_explorer.ExploredEndpoint);
   // Delete an explored endpoint from the database
   rpc DeleteExploredEndpoint(DeleteExploredEndpointRequest) returns (DeleteExploredEndpointResponse);
   // Pause or unpause remediation actions for an explored endpoint
@@ -1001,6 +1008,16 @@ message GetTenantIdentityConfigRequest {
   string organization_id = 1;
 }
 
+// Published signing key metadata (from `signing_key_public_*` JSON). Exactly one entry per
+// response should have `current_signer == true`. The inactive (previous) key during rotation
+// includes `expire_at` when it is still published for verification (JWKS overlap end; JSON: expireAt).
+message TenantIdentitySigningKey {
+  string kid = 1;
+  string alg = 2;
+  bool current_signer = 3;
+  optional google.protobuf.Timestamp expire_at = 4;
+}
+
 message TenantIdentityConfig {
   bool enabled = 1;
   // JWT `iss` / OIDC issuer string: `https://` or `http://` URL (trust domain = host),
@@ -1012,6 +1029,11 @@ message TenantIdentityConfig {
   // When unset or empty, defaults to spiffe://<trust-domain-from-issuer>
   optional string subject_prefix = 6;
   bool rotate_key = 7;
+  // Seconds to keep the previous verification key in JWKS after `rotate_key`. Required when
+  // `rotate_key` is true; must be omitted when `rotate_key` is false. Must be >= `token_ttl_sec`
+  // so JWTs signed with the previous key remain verifiable until they expire. Capped by site
+  // `machine_identity.signing_key_overlap_max_sec`.
+  optional uint32 signing_key_overlap_sec = 8;
 }
 
 message SetTenantIdentityConfigRequest {
@@ -1024,7 +1046,9 @@ message TenantIdentityConfigResponse {
   TenantIdentityConfig config = 2;
   google.protobuf.Timestamp created_at = 8;
   google.protobuf.Timestamp updated_at = 9;
-  string key_id = 10;
+  reserved 10;
+  reserved "key_id";
+  repeated TenantIdentitySigningKey signing_keys = 11;
 }
 
 // Token delegation config (per-org token exchange for machine identity).
@@ -2237,6 +2261,7 @@ message IBFabricIdList {
   repeated string ib_fabric_ids = 1;
 }
 
+// Deprecated: use FindNetworkSegmentStateHistories RPC instead
 message NetworkSegmentStateHistory {
   string state = 1;
   string version = 2;
@@ -2264,33 +2289,66 @@ enum NetworkSegmentFlag {
   CAN_STRETCH = 1;
 }
 
+message NetworkSegmentConfig {
+  common.VpcId vpc_id = 1;
+
+  optional common.DomainId subdomain_id = 2;
+  optional int32 mtu = 3;
+
+  NetworkSegmentType segment_type = 4;
+
+  repeated NetworkPrefix prefixes = 5;
+}
+
+message NetworkSegmentStatus {
+  // Derived from can_stretch; not accepted as user input.
+  repeated NetworkSegmentFlag flags = 1;
+
+  // Lifecycle related status
+  LifecycleStatus lifecycle = 2;
+
+  // Coarse tenant-facing state derived from lifecycle.state at the server side.
+  TenantState tenant_state = 3;
+}
+
 message NetworkSegment {
   common.NetworkSegmentId id = 1;
-  common.VpcId vpc_id = 2;
 
-  string name = 3;
-
-  optional common.DomainId subdomain_id = 4;
-  optional int32 mtu = 5;
-
-  repeated NetworkPrefix prefixes = 6;
-
-  string version = 99;
-  TenantState state = 100;
-  repeated NetworkSegmentStateHistory history = 101;
-  // The result of last state controller run - its outcome and an optional reason for that outcome
-  optional ControllerStateReason state_reason = 102;
-  // The SLA for the current state - and whether the SLA has been breached
-  StateSla state_sla = 103;
-
+  // Deprecated: use config.vpc_id
+  common.VpcId vpc_id = 2 [deprecated = true];
+  // Deprecated: use metadata.name
+  string name = 3 [deprecated = true];
+  // Deprecated: use config.subdomain_id
+  optional common.DomainId subdomain_id = 4 [deprecated = true];
+  // Deprecated: use config.mtu
+  optional int32 mtu = 5 [deprecated = true];
+  // Deprecated: use config.prefixes
+  repeated NetworkPrefix prefixes = 6 [deprecated = true];
 
   // Not sure if we actually still need those
   google.protobuf.Timestamp created = 11;
   google.protobuf.Timestamp updated = 12;
   google.protobuf.Timestamp deleted = 13;
 
-  NetworkSegmentType segment_type = 14;
-  repeated NetworkSegmentFlag flags = 15;
+  // Deprecated: use config.segment_type
+  NetworkSegmentType segment_type = 14 [deprecated = true];
+  // Deprecated: use status.flags
+  repeated NetworkSegmentFlag flags = 15 [deprecated = true];
+
+  NetworkSegmentConfig config = 16;
+  NetworkSegmentStatus status = 17;
+  Metadata metadata = 18;
+
+  // Deprecated: use status.lifecycle.version
+  string version = 99 [deprecated = true];
+  // Deprecated: use status.tenant_state (coarse) or status.lifecycle.state (full controller state)
+  TenantState state = 100 [deprecated = true];
+  // Deprecated: use FindNetworkSegmentStateHistories RPC
+  repeated NetworkSegmentStateHistory history = 101 [deprecated = true];
+  // Deprecated: use status.lifecycle.state_reason
+  optional ControllerStateReason state_reason = 102 [deprecated = true];
+  // Deprecated: use status.lifecycle.sla
+  StateSla state_sla = 103 [deprecated = true];
 }
 
 message NetworkSegmentCreationRequest {
@@ -2316,6 +2374,10 @@ message NetworkSegmentDeletionRequest {
 }
 
 message NetworkSegmentDeletionResult {
+}
+
+message NetworkSegmentStateHistoriesRequest {
+  repeated common.NetworkSegmentId network_segment_ids = 1;
 }
 
 message NetworkSegmentSearchConfig {
@@ -2613,7 +2675,18 @@ message InstanceNetworkConfig {
   // When true, NICO (or potentially some pluggable SDN backend) will
   // auto-resolve the instance's network interfaces from the host's
   // HostInband network segments. Only valid for instances on zero-DPU
-  // hosts (well, no DPU, *or* DPU in NIC mode).
+  // hosts (well, no DPU, *or* DPU in NIC mode). When set, `interfaces`
+  // MUST be empty on the request.
+  //
+  // Callers reading the instance back also see `auto = true` with an empty
+  // `interfaces` list (what they sent is preserved verbatim). The
+  // resolved per-interface details -- IP, MAC, gateway, prefix -- surface
+  // in `Instance.status.network.interfaces` instead.
+  //
+  // On update, sending `auto: true` re-resolves interfaces from the host's
+  // current HostInband segments. If nothing has changed, this is a no-op.
+  // If the host's segments have been added/removed by the operator, the
+  // update reflects that change.
   bool auto = 2;
 }
 
@@ -2730,9 +2803,16 @@ message InstanceStatus {
 message InstanceNetworkStatus {
   // Status for each configured interface
   //
-  // Each entry in this status array maps to its corresponding entry in the
-  // Config section. E.g. `instance.status.network.interface_status[1]`
-  // would map to `instance.config.network.interface_configs[1]`.
+  // For non-auto configs: each entry in this status array maps to its
+  // corresponding entry in the Config section. E.g.
+  // `instance.status.network.interfaces[1]` would map to
+  // `instance.config.network.interfaces[1]`.
+  //
+  // For auto configs (`InstanceNetworkConfig.auto = true`): the config-side
+  // `interfaces` is always empty on the wire (it's preserved verbatim from
+  // the request), so this status array stands alone and describes the
+  // interfaces Carbide resolved from the host's HostInband segments. There
+  // is no positional relationship to consult on the config side.
   repeated InstanceInterfaceStatus interfaces = 1;
 
   // Whether all desired network changes that the user has applied have taken effect
@@ -3689,6 +3769,11 @@ message ReExploreEndpointRequest {
   optional string if_version_match = 2;
 }
 
+message RefreshEndpointReportRequest {
+  // The IP address of the BMC endpoint to probe and refresh
+  string ip_address = 1;
+}
+
 message DeleteExploredEndpointRequest {
   // The IP address of the BMC endpoint to delete
   string ip_address = 1;
@@ -4617,6 +4702,10 @@ message CloudInitDiscoveryInstructions {
   // The representor that will plug into the HBN container to connect it to br-hbn
   // to open connectivity between all the VFs.
   optional string vf_intercept_bridge_sf = 9;
+
+  // Number of VFs to configure per DPU PF during BlueField provisioning.
+  // If absent, carbide-pxe uses the legacy default of 16 for rolling upgrades.
+  optional uint32 num_of_vfs = 10;
 }
 
 message CloudInitMetaData {

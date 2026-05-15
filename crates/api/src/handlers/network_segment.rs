@@ -229,6 +229,47 @@ pub(crate) async fn for_vpc(
     Ok(Response::new(rpc::NetworkSegmentList { network_segments }))
 }
 
+pub(crate) async fn find_state_histories(
+    api: &Api,
+    request: Request<rpc::NetworkSegmentStateHistoriesRequest>,
+) -> Result<Response<rpc::StateHistories>, Status> {
+    log_request_data(&request);
+    let segment_ids = request.into_inner().network_segment_ids;
+
+    let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
+    if segment_ids.len() > max_find_by_ids {
+        return Err(CarbideError::InvalidArgument(format!(
+            "no more than {max_find_by_ids} IDs can be accepted"
+        ))
+        .into());
+    } else if segment_ids.is_empty() {
+        return Err(
+            CarbideError::InvalidArgument("at least one ID must be provided".to_string()).into(),
+        );
+    }
+
+    let mut txn = api.txn_begin().await?;
+    let results = db::state_history::find_by_object_ids(
+        &mut txn,
+        db::state_history::StateHistoryTableId::NetworkSegment,
+        &segment_ids,
+    )
+    .await?;
+
+    let mut response = rpc::StateHistories::default();
+    for (segment_id, records) in results {
+        response.histories.insert(
+            segment_id,
+            rpc::StateHistoryRecords {
+                records: records.into_iter().map(Into::into).collect(),
+            },
+        );
+    }
+
+    txn.commit().await?;
+    Ok(tonic::Response::new(response))
+}
+
 // Called by db_init::create_initial_networks
 pub(crate) async fn save(
     api: &Api,

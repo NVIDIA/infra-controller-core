@@ -27,6 +27,26 @@ pub mod dhcp_record;
 pub mod dns;
 pub mod dpa_interface;
 pub mod dpu_remediation;
+pub mod expected_machine;
+pub mod expected_power_shelf;
+pub mod expected_rack;
+pub mod expected_switch;
+pub mod extension_service;
+pub mod hardware_info;
+pub mod health;
+pub mod ib_partition;
+pub mod instance;
+pub mod instance_type;
+pub mod machine;
+pub mod machine_boot_override;
+pub mod machine_validation;
+pub mod metadata;
+pub mod network_devices;
+pub mod network_prefix;
+pub mod network_security_group;
+pub mod network_segment;
+pub mod nvl_logical_partition;
+pub mod nvl_partition;
 pub mod operating_system_definition;
 pub mod os;
 pub mod power_manager;
@@ -47,3 +67,14 @@ pub mod tenant;
 pub mod trim_table;
 pub mod vpc;
 pub mod vpc_prefix;
+
+use crate::StateSla;
+
+impl From<StateSla> for rpc::forge::StateSla {
+    fn from(value: StateSla) -> Self {
+        rpc::forge::StateSla {
+            sla: value.sla.map(|sla| sla.into()),
+            time_in_state_above_sla: value.time_in_state_above_sla,
+        }
+    }
+}

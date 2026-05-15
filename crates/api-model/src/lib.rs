@@ -159,6 +159,11 @@ pub enum ConfigValidationError {
     #[error("Instance deletion request is already received.")]
     InstanceDeletionIsRequested,
 
+    #[error(
+        "Instance release is blocked: aggregate health includes a PreventInstanceDeletion alert. Remove the alert or the health override that carries it, then retry."
+    )]
+    InstanceReleaseBlockedByPreventInstanceDeletion,
+
     #[error("Instance is not Ready yet. Can't apply the config.")]
     InvalidState,
 }
@@ -292,15 +297,6 @@ impl StateSla {
         Self {
             time_in_state_above_sla: time_in_state > sla,
             sla: Some(sla),
-        }
-    }
-}
-
-impl From<StateSla> for rpc::forge::StateSla {
-    fn from(value: StateSla) -> Self {
-        rpc::forge::StateSla {
-            sla: value.sla.map(|sla| sla.into()),
-            time_in_state_above_sla: value.time_in_state_above_sla,
         }
     }
 }

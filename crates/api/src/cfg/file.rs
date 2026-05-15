@@ -63,6 +63,8 @@ static BF3_NIC: &str = "32.47.2682";
 static BF3_BMC: &str = "BF-25.10-20";
 static BF3_CEC: &str = "00.02.0195.0000_n02";
 static BF3_UEFI: &str = "4.13.2-12-g943a91640d";
+pub(crate) const DEFAULT_DPU_NUM_OF_VFS: u32 = 16;
+pub(crate) const MAX_DPU_NUM_OF_VFS: u32 = 126;
 
 /// nico-api configuration file content
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -818,6 +820,9 @@ pub struct MachineIdentityConfig {
     /// Same pattern syntax as [`Self::trust_domain_allowlist`].
     #[serde(default)]
     pub token_endpoint_domain_allowlist: Vec<String>,
+    /// Upper bound for `signing_key_overlap_sec` on `SetTenantIdentityConfiguration` when `rotate_key` is true (seconds).
+    #[serde(default = "machine_identity_default_signing_key_overlap_max_sec")]
+    pub signing_key_overlap_max_sec: u32,
 }
 
 fn machine_identity_default_enabled() -> bool {
@@ -832,6 +837,9 @@ fn machine_identity_default_token_ttl_min_sec() -> u32 {
 fn machine_identity_default_token_ttl_max_sec() -> u32 {
     86400
 }
+fn machine_identity_default_signing_key_overlap_max_sec() -> u32 {
+    604800
+}
 
 impl Default for MachineIdentityConfig {
     fn default() -> Self {
@@ -844,6 +852,7 @@ impl Default for MachineIdentityConfig {
             current_encryption_key_id: None,
             trust_domain_allowlist: Vec::new(),
             token_endpoint_domain_allowlist: Vec::new(),
+            signing_key_overlap_max_sec: machine_identity_default_signing_key_overlap_max_sec(),
         }
     }
 }
@@ -865,6 +874,7 @@ impl From<MachineIdentityConfig> for model::tenant::IdentityConfigValidationBoun
                     "current_encryption_key_id must be non-empty when machine identity is enabled",
                 ),
             trust_domain_allowlist: mi.trust_domain_allowlist,
+            signing_key_overlap_max_sec: mi.signing_key_overlap_max_sec,
         }
     }
 }
@@ -1581,6 +1591,8 @@ pub struct InitialObjectsConfig {
     /// Required, but wrapped in `Option` so partial configs
     /// can be deserialized and merged.
     pub pools: Option<HashMap<String, ResourcePoolDef>>,
+    /// Network Segment definitions
+    pub networks: Option<HashMap<String, NetworkDefinition>>,
 }
 
 impl DpaConfig {
@@ -1715,6 +1727,11 @@ pub struct DpuConfig {
     /// Default is false.
     #[serde(default)]
     pub dpu_enable_secure_boot: bool,
+
+    /// Number of virtual functions configured per DPU PF during BlueField provisioning.
+    /// Defaults to 16 and must not exceed 126.
+    #[serde(default)]
+    pub num_of_vfs: u32,
 }
 
 impl DpuConfig {
@@ -1752,10 +1769,18 @@ impl<'de> Deserialize<'de> for DpuConfig {
             dpu_nic_firmware_update_versions: Option<Vec<String>>,
             #[serde(default)]
             dpu_enable_secure_boot: Option<bool>,
+            #[serde(default)]
+            num_of_vfs: Option<u32>,
         }
 
         let partial = PartialDpuConfig::deserialize(deserializer)?;
         let default = DpuConfig::default();
+        let num_of_vfs = partial.num_of_vfs.unwrap_or(default.num_of_vfs);
+        if num_of_vfs > MAX_DPU_NUM_OF_VFS {
+            return Err(serde::de::Error::custom(format!(
+                "dpu_config.num_of_vfs must be <= {MAX_DPU_NUM_OF_VFS}"
+            )));
+        }
 
         Ok(DpuConfig {
             dpu_nic_firmware_initial_update_enabled: partial
@@ -1771,6 +1796,7 @@ impl<'de> Deserialize<'de> for DpuConfig {
             dpu_enable_secure_boot: partial
                 .dpu_enable_secure_boot
                 .unwrap_or(default.dpu_enable_secure_boot),
+            num_of_vfs,
         })
     }
 }
@@ -1893,6 +1919,7 @@ impl Default for DpuConfig {
             ]),
             dpu_nic_firmware_update_versions: vec![BF2_NIC.to_string(), BF3_NIC.to_string()],
             dpu_enable_secure_boot: false,
+            num_of_vfs: DEFAULT_DPU_NUM_OF_VFS,
         }
     }
 }
@@ -2540,9 +2567,10 @@ pub struct DpaConfig {
 /// DSX Exchange Event Bus configuration for publishing state change events via MQTT 3.1.1.
 ///
 /// When configured, Carbide will publish `ManagedHostState` transitions to
-/// `nico/v1/machine/{machineId}/state`, publish BMS rack leak/isolation values
-/// and heartbeat timestamps to metadata-defined DSX topics, and subscribe to
-/// `BMS/v1/PUB/Metadata/#` to learn those routing targets.
+/// `{topic_prefix}/{machineId}/state` (default `NICO/v1/machine`), publish BMS
+/// rack leak/isolation values and heartbeat timestamps to metadata-defined DSX
+/// topics, and subscribe to `BMS/v1/PUB/Metadata/#` to learn those routing
+/// targets.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct DsxExchangeEventBusConfig {
     /// Enable/disable the DSX Exchange Event Bus.
@@ -2570,6 +2598,13 @@ pub struct DsxExchangeEventBusConfig {
     #[serde(default = "DsxExchangeEventBusConfig::default_queue_capacity")]
     pub queue_capacity: usize,
 
+    /// Topic prefix used when publishing `ManagedHostState` transitions.
+    /// The full topic is `{topic_prefix}/{machineId}/state`. Defaults to
+    /// `NICO/v1/machine`. NATS subjects are case-sensitive, so this must
+    /// match the producer pub allow configured on the broker.
+    #[serde(default = "DsxExchangeEventBusConfig::default_topic_prefix")]
+    pub topic_prefix: String,
+
     #[serde(default)]
     pub auth: MqttAuthConfig,
 }
@@ -2581,6 +2616,10 @@ impl DsxExchangeEventBusConfig {
 
     pub const fn default_queue_capacity() -> usize {
         1024
+    }
+
+    pub fn default_topic_prefix() -> String {
+        "NICO/v1/machine".to_string()
     }
 }
 
@@ -2742,6 +2781,7 @@ mod tests {
     use figment::providers::{Env, Format, Toml};
     use libmlx::variables::value::MlxValueType;
     use libredfish::model::service_root::RedfishVendor;
+    use model::network_segment::NetworkDefinitionSegmentType;
     use model::resource_pool;
 
     use super::*;
@@ -3190,6 +3230,7 @@ mod tests {
         );
         assert_eq!(config.tls.as_ref().unwrap().root_cafile_path, "/path/to/ca");
         assert!(!config.auth.as_ref().unwrap().permissive_mode);
+        assert_eq!(config.dpu_config.num_of_vfs, DEFAULT_DPU_NUM_OF_VFS);
         assert_eq!(
             config
                 .auth
@@ -3778,6 +3819,7 @@ mqtt_endpoint = "mqtt.forge"
         let toml = r#"
 [dpu_config]
 dpu_enable_secure_boot = true
+num_of_vfs = 64
 "#;
 
         let config: CarbideConfig = Figment::new()
@@ -3787,7 +3829,32 @@ dpu_enable_secure_boot = true
             .unwrap();
 
         assert!(config.dpu_config.dpu_enable_secure_boot);
+        assert_eq!(config.dpu_config.num_of_vfs, 64);
         assert!(!config.dpu_config.dpu_models.is_empty());
+    }
+
+    /// Validates the hard limit on generated BlueField virtual functions.
+    #[test]
+    fn deserialize_dpu_config_rejects_too_many_vfs() {
+        let toml = r#"
+[dpu_config]
+num_of_vfs = 127
+"#;
+
+        // Extracting the config should fail before runtime provisioning.
+        let error = Figment::new()
+            .merge(Toml::file(format!("{TEST_DATA_DIR}/full_config.toml")))
+            .merge(Toml::string(toml))
+            .extract::<CarbideConfig>()
+            .unwrap_err();
+
+        // Surface a clear operator-facing message for the invalid value.
+        assert!(
+            error
+                .to_string()
+                .contains("dpu_config.num_of_vfs must be <= 126"),
+            "{error}"
+        );
     }
 
     #[test]
@@ -3981,6 +4048,32 @@ firmware_url = "https://firmware.example.com/fw-b.bin"
         let f = PathBuf::from(format!("{TEST_DATA_DIR}/initial_objects.toml"));
         let config: InitialObjectsConfig = Toml::from_path(f.as_path()).unwrap();
         let pools = config.pools.as_ref().unwrap();
+        let networks = config.networks.as_ref().unwrap();
+
+        assert_eq!(
+            networks.get("admin").unwrap(),
+            &NetworkDefinition {
+                segment_type: NetworkDefinitionSegmentType::Admin,
+                prefix: "172.20.0.0/24".to_string(),
+                gateway: "172.20.0.1".to_string(),
+                mtu: 9000,
+                reserve_first: 5,
+                allocation_strategy: Default::default(),
+            }
+        );
+
+        assert_eq!(
+            networks.get("DEV1-C09-IPMI-01").unwrap(),
+            &NetworkDefinition {
+                segment_type: NetworkDefinitionSegmentType::Underlay,
+                prefix: "172.99.0.0/26".to_string(),
+                gateway: "172.99.0.1".to_string(),
+                mtu: 1500,
+                reserve_first: 5,
+                allocation_strategy: Default::default(),
+            }
+        );
+
         assert_eq!(
             pools.get("lo-ip").unwrap(),
             &ResourcePoolDef {
