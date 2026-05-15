@@ -712,7 +712,7 @@ impl Default for DpfConfig {
 }
 
 fn default_dpf_bfb_url() -> String {
-    "https://content.mellanox.com/BlueField/BFBs/Ubuntu24.04/bf-bundle-3.2.1-34_25.11_ubuntu-24.04_64k_prod.bfb".to_string()
+    "https://content.mellanox.com/BlueField/BFBs/Ubuntu24.04/bf-bundle-3.2.2-125_26.02_ubuntu-24.04_64k_prod.bfb".to_string()
 }
 
 fn default_dpf_deployment_name() -> String {
