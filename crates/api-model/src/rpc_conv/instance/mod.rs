@@ -14,9 +14,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use rpc::errors::RpcDataConversionError;
 
-use crate::instance::{DeleteInstance, InstanceSearchFilter};
+use crate::instance::InstanceSearchFilter;
 use crate::metadata::LabelFilter;
 
 pub mod config;
@@ -31,21 +30,6 @@ impl From<rpc::forge::InstanceSearchFilter> for InstanceSearchFilter {
             vpc_id: filter.vpc_id,
             instance_type_id: filter.instance_type_id,
         }
-    }
-}
-
-impl TryFrom<rpc::InstanceReleaseRequest> for DeleteInstance {
-    type Error = RpcDataConversionError;
-
-    fn try_from(value: rpc::InstanceReleaseRequest) -> Result<Self, Self::Error> {
-        let instance_id = value
-            .id
-            .ok_or(RpcDataConversionError::MissingArgument("id"))?;
-        Ok(DeleteInstance {
-            instance_id,
-            issue: value.issue,
-            is_repair_tenant: value.is_repair_tenant,
-        })
     }
 }
 

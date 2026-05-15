@@ -17,6 +17,7 @@
 use std::collections::HashMap;
 use std::str::FromStr;
 
+use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge::{self as rpc, AdminForceDeleteMachineResponse};
 use carbide_redfish::libredfish::RedfishAuth;
 use carbide_uuid::infiniband::IBPartitionId;
@@ -30,7 +31,6 @@ use health_report::{
 };
 use itertools::Itertools as _;
 use model::ConfigValidationError;
-use model::instance::DeleteInstance;
 use model::instance::config::InstanceConfig;
 use model::instance::config::extension_services::InstanceExtensionServicesConfig;
 use model::instance::config::infiniband::InstanceInfinibandConfig;
@@ -668,6 +668,27 @@ pub(crate) async fn release(
     api: &Api,
     request: Request<rpc::InstanceReleaseRequest>,
 ) -> Result<Response<rpc::InstanceReleaseResult>, Status> {
+    pub struct DeleteInstance {
+        pub instance_id: InstanceId,
+        pub issue: Option<rpc::Issue>,
+        pub is_repair_tenant: Option<bool>,
+    }
+
+    impl TryFrom<rpc::InstanceReleaseRequest> for DeleteInstance {
+        type Error = RpcDataConversionError;
+
+        fn try_from(value: rpc::InstanceReleaseRequest) -> Result<Self, Self::Error> {
+            let instance_id = value
+                .id
+                .ok_or(RpcDataConversionError::MissingArgument("id"))?;
+            Ok(DeleteInstance {
+                instance_id,
+                issue: value.issue,
+                is_repair_tenant: value.is_repair_tenant,
+            })
+        }
+    }
+
     log_request_data(&request);
     let delete_instance = DeleteInstance::try_from(request.into_inner())?;
 
