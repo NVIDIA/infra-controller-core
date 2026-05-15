@@ -1766,6 +1766,7 @@ pub async fn create_test_env_with_overrides(
         power_states: Arc::new(std::sync::Mutex::new(Default::default())),
         redfish_power_control_calls: Arc::new(std::sync::Mutex::new(Default::default())),
         set_nic_mode_calls: Arc::new(std::sync::Mutex::new(Default::default())),
+        explore_endpoint_calls: Arc::new(std::sync::Mutex::new(Default::default())),
     };
 
     // The API server is launched with a disabled site-explorer config so that it doesn't launch one

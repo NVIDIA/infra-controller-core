@@ -967,6 +967,13 @@ impl Forge for Api {
         crate::handlers::site_explorer::re_explore_endpoint(self, request).await
     }
 
+    async fn refresh_endpoint_report(
+        &self,
+        request: Request<rpc::RefreshEndpointReportRequest>,
+    ) -> Result<Response<::rpc::site_explorer::ExploredEndpoint>, Status> {
+        crate::handlers::site_explorer::refresh_endpoint_report(self, request).await
+    }
+
     async fn delete_explored_endpoint(
         &self,
         request: Request<rpc::DeleteExploredEndpointRequest>,

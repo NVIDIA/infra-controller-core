@@ -189,10 +189,10 @@
 				if (e.persisted) hideActionSpinner();
 			});
 
-			function showToast(message) {
+			function showToast(message, isError) {
 				hideActionSpinner();
 				const toast = document.createElement('div');
-				toast.className = 'action-toast';
+				toast.className = 'action-toast' + (isError ? ' action-toast-error' : '');
 				const text = document.createElement('span');
 				text.className = 'action-toast-text';
 				text.textContent = message;
@@ -201,7 +201,7 @@
 				setTimeout(function() {
 					toast.classList.add('dismissing');
 					setTimeout(function() { toast.remove(); }, 300);
-				}, 3000);
+				}, 5000);
 			}
 
 			function prettifyErrorMsg(raw) {
@@ -303,7 +303,13 @@
 				if (!jsonLink) {
 					return;
 				}
-				jsonLink.href = window.location.href + ".json";
+				// JSON endpoints don't honor UI query state (e.g. ?tab=),
+				// so target the path-only ".json" variant of this page.
+				const url = new URL(window.location.href);
+				url.pathname = url.pathname + ".json";
+				url.search = "";
+				url.hash = "";
+				jsonLink.href = url.toString();
 			}
 
 			function prettifyJSONs() {

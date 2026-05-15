@@ -238,6 +238,9 @@ pub enum CarbideError {
     #[error("Permission denied: {0}")]
     PermissionDeniedError(String),
 
+    #[error("{0}")]
+    AlreadyInProgress(String),
+
     #[error("Attestation Error: {0}")]
     AttestationError(String),
 }
@@ -400,6 +403,7 @@ impl From<CarbideError> for tonic::Status {
             }
             CarbideError::UnavailableError(msg) => Status::unavailable(msg),
             CarbideError::PermissionDeniedError(msg) => Status::permission_denied(msg),
+            CarbideError::AlreadyInProgress(msg) => Status::already_exists(msg),
             other => Status::internal(other.to_string()),
         }
     }

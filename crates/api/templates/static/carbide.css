@@ -1412,6 +1412,10 @@ pre:not(div[style*="overflow: auto"] > pre):not(td > div > pre) {
   background: var(--accent, #76b900);
 }
 
+.action-toast.action-toast-error::before {
+  background: #d9534f;
+}
+
 .action-toast-text {
   padding: 0.85rem 1.25rem;
   font-size: 0.95rem;
@@ -1525,6 +1529,45 @@ select.disabled {
 }
 
 /* ------------------------------------------------------------------------
+   Refresh Endpoint Icon
+   ------------------------------------------------------------------------ */
+.refresh-icon {
+  display: block;
+}
+
+div#json a#refresh-endpoint {
+  align-items: center;
+  display: inline-flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 0.5rem;
+  justify-content: center;
+  padding: 0.5rem 1.25rem;
+  white-space: nowrap;
+}
+
+div#json a#refresh-endpoint .refresh-icon {
+  flex-shrink: 0;
+}
+
+div#json a#refresh-endpoint:hover {
+  background-color: var(--accent-green);
+  box-shadow: var(--shadow-md);
+  border-color: var(--accent-green-hover);
+}
+
+@keyframes refresh-spin {
+  0%   { transform: rotate(0deg); }
+  75%  { transform: rotate(360deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.refresh-spinning .refresh-icon {
+  animation: refresh-spin 1s ease-in-out infinite;
+  transform-origin: center;
+}
+
+/* ------------------------------------------------------------------------
    Tab System
    ------------------------------------------------------------------------ */
 
@@ -1631,4 +1674,4 @@ select.disabled {
     font-size: 0.85rem;
     white-space: nowrap;
   }
-} 
+}
