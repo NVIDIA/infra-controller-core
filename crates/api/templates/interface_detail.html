@@ -8,8 +8,21 @@
 
 <table class="sortable overview">
 	<tr><th>ID</th><td>{{ id }}</td></tr>
-	<tr><th>DPU ID</th><td>{{ dpu_machine_id|machine_id_link|safe }}{% if is_bmc && !dpu_machine_id.is_empty() %} (BMC){% endif %}</td></tr>
-	<tr><th>Machine ID</th><td>{{ machine_id|machine_id_link|safe }}{% if is_bmc && !machine_id.is_empty() %} (BMC){% endif %}</td></tr>
+	<tr><th>Interface Type</th><td>{{ interface_type }}</td></tr>
+	<tr><th>Association Type</th><td>{{ association_type }}</td></tr>
+	<tr>
+		<th>Association ID</th>
+		<td>
+			{% if !machine_id.is_empty() %}
+				{{ machine_id|machine_id_link|safe }}
+			{% else if !switch_id.is_empty() %}
+				{{ switch_id|switch_id_link|safe }}
+			{% else if !power_shelf_id.is_empty() %}
+				{{ power_shelf_id|power_shelf_id_link|safe }}
+			{% endif %}
+		</td>
+	</tr>
+	<tr><th>Attached DPU ID</th><td>{{ dpu_machine_id|machine_id_link|safe }}</td></tr>
 	<tr><th>Segment ID</th><td><a href="/admin/network-segment/{{ segment_id }}">{{ segment_id }}</a></td></tr>
 	<tr><th>Domain ID</th><td><a href="/admin/domain">{{ domain_id }}</a></td></tr>
 	<tr><th>Domain Name</th><td>{{ domain_name }}</td></tr>
