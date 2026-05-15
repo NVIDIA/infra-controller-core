@@ -21,311 +21,19 @@ use model::machine_validation::{
     MachineValidationTestUpdateRequest, MachineValidationTestsGetRequest,
 };
 use regex::Regex;
-use sqlx::Execute;
-use sqlx::PgConnection;
-use sqlx::Postgres;
-use sqlx::QueryBuilder;
+use sqlx::{PgConnection, Postgres, QueryBuilder};
 
 use crate::db_read::DbReader;
 use crate::{DatabaseError, DatabaseResult};
 
-const MVT_TABLE: &str = "machine_validation_tests";
-
-/// INSERT semantics match the previous serde_json-driven builder: skip `Option::None`, skip empty
-/// `Vec`s for array columns, always set `version`, `test_id`, `modified_by`.
-///
-/// `name`, `command`, and `args` are always emitted as columns and bound values: in
-/// `forge.proto` they are plain `string` fields on `MachineValidationTestAddRequest` (not
-/// `optional`), the Rust model uses `String`, and the `machine_validation_tests` table defines
-/// them `NOT NULL`.
-fn push_insert<'a>(
-    req: &'a MachineValidationTestAddRequest,
-    version: &'a str,
-    test_id: &'a str,
-    modified_by: &'a str,
-) -> QueryBuilder<'a, Postgres> {
-    let mut qb = QueryBuilder::new("INSERT INTO ");
-    qb.push(MVT_TABLE);
-    qb.push(" (");
-    let mut cols = qb.separated(", ");
-    cols.push("name");
-    if req.description.is_some() {
-        cols.push("description");
-    }
-    if !req.contexts.is_empty() {
-        cols.push("contexts");
-    }
-    if req.img_name.is_some() {
-        cols.push("img_name");
-    }
-    if req.execute_in_host.is_some() {
-        cols.push("execute_in_host");
-    }
-    if req.container_arg.is_some() {
-        cols.push("container_arg");
-    }
-    cols.push("command");
-    cols.push("args");
-    if req.extra_err_file.is_some() {
-        cols.push("extra_err_file");
-    }
-    if req.external_config_file.is_some() {
-        cols.push("external_config_file");
-    }
-    if req.pre_condition.is_some() {
-        cols.push("pre_condition");
-    }
-    if req.timeout.is_some() {
-        cols.push("timeout");
-    }
-    if req.extra_output_file.is_some() {
-        cols.push("extra_output_file");
-    }
-    if !req.supported_platforms.is_empty() {
-        cols.push("supported_platforms");
-    }
-    if req.read_only.is_some() {
-        cols.push("read_only");
-    }
-    if !req.custom_tags.is_empty() {
-        cols.push("custom_tags");
-    }
-    if !req.components.is_empty() {
-        cols.push("components");
-    }
-    if req.is_enabled.is_some() {
-        cols.push("is_enabled");
-    }
-    cols.push("version");
-    cols.push("test_id");
-    cols.push("modified_by");
-
-    qb.push(") VALUES (");
-    let mut vals = qb.separated(", ");
-    vals.push_bind(&req.name);
-    if let Some(ref d) = req.description {
-        vals.push_bind(d);
-    }
-    if !req.contexts.is_empty() {
-        vals.push_bind(&req.contexts);
-    }
-    if let Some(ref v) = req.img_name {
-        vals.push_bind(v);
-    }
-    if let Some(v) = req.execute_in_host {
-        vals.push_bind(v);
-    }
-    if let Some(ref v) = req.container_arg {
-        vals.push_bind(v);
-    }
-    vals.push_bind(&req.command);
-    vals.push_bind(&req.args);
-    if let Some(ref v) = req.extra_err_file {
-        vals.push_bind(v);
-    }
-    if let Some(ref v) = req.external_config_file {
-        vals.push_bind(v);
-    }
-    if let Some(ref v) = req.pre_condition {
-        vals.push_bind(v);
-    }
-    if let Some(v) = req.timeout {
-        vals.push_bind(v);
-    }
-    if let Some(ref v) = req.extra_output_file {
-        vals.push_bind(v);
-    }
-    if !req.supported_platforms.is_empty() {
-        vals.push_bind(&req.supported_platforms);
-    }
-    if let Some(v) = req.read_only {
-        vals.push_bind(v);
-    }
-    if !req.custom_tags.is_empty() {
-        vals.push_bind(&req.custom_tags);
-    }
-    if !req.components.is_empty() {
-        vals.push_bind(&req.components);
-    }
-    if let Some(v) = req.is_enabled {
-        vals.push_bind(v);
-    }
-    vals.push_bind(version);
-    vals.push_bind(test_id);
-    vals.push_bind(modified_by);
-    qb.push(") RETURNING test_id");
-    qb
-}
-
-/// UPDATE: at least one non-verified field or explicit `verified` must be present, or
-/// `InvalidArgument("Nothing to update")`. If `verified` is omitted, it is set to `false` after
-/// other columns are applied (same as the legacy JSON builder).
-fn push_update<'a>(
-    payload: &'a MachineValidationTestUpdatePayload,
-    version: &'a str,
-    test_id: &'a str,
-    modified_by: &'a str,
-) -> DatabaseResult<QueryBuilder<'a, Postgres>> {
-    let mut qb = QueryBuilder::new("UPDATE ");
-    qb.push(MVT_TABLE);
-    qb.push(" SET ");
-    let mut sets = qb.separated(", ");
-
-    let mut n = 0usize;
-    if let Some(ref v) = payload.name {
-        sets.push("name = ");
-        sets.push_bind_unseparated(v);
-        n += 1;
-    }
-    if let Some(ref v) = payload.description {
-        sets.push("description = ");
-        sets.push_bind_unseparated(v);
-        n += 1;
-    }
-    if !payload.contexts.is_empty() {
-        sets.push("contexts = ");
-        sets.push_bind_unseparated(&payload.contexts);
-        n += 1;
-    }
-    if let Some(ref v) = payload.img_name {
-        sets.push("img_name = ");
-        sets.push_bind_unseparated(v);
-        n += 1;
-    }
-    if let Some(v) = payload.execute_in_host {
-        sets.push("execute_in_host = ");
-        sets.push_bind_unseparated(v);
-        n += 1;
-    }
-    if let Some(ref v) = payload.container_arg {
-        sets.push("container_arg = ");
-        sets.push_bind_unseparated(v);
-        n += 1;
-    }
-    if let Some(ref v) = payload.command {
-        sets.push("command = ");
-        sets.push_bind_unseparated(v);
-        n += 1;
-    }
-    if let Some(ref v) = payload.args {
-        sets.push("args = ");
-        sets.push_bind_unseparated(v);
-        n += 1;
-    }
-    if let Some(ref v) = payload.extra_err_file {
-        sets.push("extra_err_file = ");
-        sets.push_bind_unseparated(v);
-        n += 1;
-    }
-    if let Some(ref v) = payload.external_config_file {
-        sets.push("external_config_file = ");
-        sets.push_bind_unseparated(v);
-        n += 1;
-    }
-    if let Some(ref v) = payload.pre_condition {
-        sets.push("pre_condition = ");
-        sets.push_bind_unseparated(v);
-        n += 1;
-    }
-    if let Some(v) = payload.timeout {
-        sets.push("timeout = ");
-        sets.push_bind_unseparated(v);
-        n += 1;
-    }
-    if let Some(ref v) = payload.extra_output_file {
-        sets.push("extra_output_file = ");
-        sets.push_bind_unseparated(v);
-        n += 1;
-    }
-    if !payload.supported_platforms.is_empty() {
-        sets.push("supported_platforms = ");
-        sets.push_bind_unseparated(&payload.supported_platforms);
-        n += 1;
-    }
-    if let Some(v) = payload.verified {
-        sets.push("verified = ");
-        sets.push_bind_unseparated(v);
-        n += 1;
-    }
-    if !payload.custom_tags.is_empty() {
-        sets.push("custom_tags = ");
-        sets.push_bind_unseparated(&payload.custom_tags);
-        n += 1;
-    }
-    if !payload.components.is_empty() {
-        sets.push("components = ");
-        sets.push_bind_unseparated(&payload.components);
-        n += 1;
-    }
-    if let Some(v) = payload.is_enabled {
-        sets.push("is_enabled = ");
-        sets.push_bind_unseparated(v);
-        n += 1;
-    }
-
-    if n == 0 {
-        return Err(DatabaseError::InvalidArgument(
-            "Nothing to update".to_string(),
-        ));
-    }
-
-    if payload.verified.is_none() {
-        sets.push("verified = ");
-        sets.push_bind_unseparated(false);
-    }
-
-    sets.push("modified_by = ");
-    sets.push_bind_unseparated(modified_by);
-    qb.push(" WHERE test_id = ")
-        .push_bind(test_id)
-        .push(" AND version = ")
-        .push_bind(version)
-        .push(" RETURNING test_id");
-    Ok(qb)
-}
-
-/// Applies `MachineValidationTestsGetRequest` fields as `AND ...` filters with bound parameters.
-///
-/// **Maintenance:** When adding a filterable field to `MachineValidationTestsGetRequest` in
-/// `forge.proto`, extend this function (and add tests) so the new field is wired through. The
-/// legacy JSON-based `build_select_query` iterated serialized keys automatically; this path is
-/// explicit and will not pick up new proto fields by itself.
-fn push_select_filters<'a>(
-    qb: &mut QueryBuilder<'a, Postgres>,
-    req: &'a MachineValidationTestsGetRequest,
-) {
-    if let Some(ref tid) = req.test_id {
-        qb.push(" AND LOWER(test_id) = LOWER(");
-        qb.push_bind(tid);
-        qb.push(")");
-    }
-    if let Some(ref v) = req.version {
-        qb.push(" AND version = ");
-        qb.push_bind(v);
-    }
-    if let Some(b) = req.is_enabled {
-        qb.push(" AND is_enabled = ");
-        qb.push_bind(b);
-    }
-    if let Some(b) = req.verified {
-        qb.push(" AND verified = ");
-        qb.push_bind(b);
-    }
-    if let Some(b) = req.read_only {
-        qb.push(" AND read_only = ");
-        qb.push_bind(b);
-    }
-    if !req.supported_platforms.is_empty() {
-        qb.push(" AND supported_platforms && ");
-        qb.push_bind(&req.supported_platforms);
-    }
-    if !req.contexts.is_empty() {
-        qb.push(" AND contexts && ");
-        qb.push_bind(&req.contexts);
-    }
-    if !req.custom_tags.is_empty() {
-        qb.push(" AND custom_tags && ");
-        qb.push_bind(&req.custom_tags);
+/// `None` means "do not change this column" for `UPDATE ... COALESCE($n, col)` (bind `NULL`).
+/// For slice fields from a patch payload, an empty slice is treated like "omit" (same as historical
+/// dynamic SQL that skipped empty JSON arrays).
+fn patch_vec(values: &[String]) -> Option<Vec<String>> {
+    if values.is_empty() {
+        None
+    } else {
+        Some(values.to_vec())
     }
 }
 
@@ -333,16 +41,51 @@ pub async fn find(
     txn: impl DbReader<'_>,
     req: MachineValidationTestsGetRequest,
 ) -> DatabaseResult<Vec<MachineValidationTest>> {
-    let mut qb = QueryBuilder::new("SELECT * FROM ");
-    qb.push(MVT_TABLE);
-    qb.push(" WHERE 1=1");
-    push_select_filters(&mut qb, &req);
+    let mut qb: QueryBuilder<Postgres> =
+        QueryBuilder::new("SELECT * FROM machine_validation_tests WHERE 1 = 1");
+
+    if !req.supported_platforms.is_empty() {
+        qb.push(" AND supported_platforms && ");
+        qb.push_bind(req.supported_platforms);
+    }
+    if !req.contexts.is_empty() {
+        qb.push(" AND contexts && ");
+        qb.push_bind(req.contexts);
+    }
+    if let Some(ref test_id) = req.test_id {
+        qb.push(" AND LOWER(test_id) = LOWER(");
+        qb.push_bind(test_id);
+        qb.push(")");
+    }
+    if let Some(ro) = req.read_only {
+        qb.push(" AND read_only = ");
+        qb.push_bind(ro);
+    }
+    if !req.custom_tags.is_empty() {
+        qb.push(" AND custom_tags && ");
+        qb.push_bind(req.custom_tags);
+    }
+    if let Some(ref ver) = req.version {
+        qb.push(" AND version = ");
+        qb.push_bind(ver);
+    }
+    if let Some(en) = req.is_enabled {
+        qb.push(" AND is_enabled = ");
+        qb.push_bind(en);
+    }
+    if let Some(v) = req.verified {
+        qb.push(" AND verified = ");
+        qb.push_bind(v);
+    }
+
     qb.push(" ORDER BY version DESC, name ASC");
+
     let q = qb.build_query_as::<MachineValidationTest>();
-    let sql = q.sql();
-    q.fetch_all(txn)
+    let ret = q
+        .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::query(sql, e))
+        .map_err(|e| DatabaseError::query("SELECT machine_validation_tests", e))?;
+    Ok(ret)
 }
 
 pub fn generate_test_id(name: &str) -> String {
@@ -363,15 +106,87 @@ pub async fn save(
         .map(|p| re.replace_all(p, "_").to_string().to_ascii_lowercase())
         .collect();
 
-    let version_s = version.version_string();
-    let mut qb = push_insert(&req, version_s.as_str(), &test_id, "User");
-    let q = qb.build_query_scalar::<String>();
-    let sql = q.sql();
-    let returned = q
-        .fetch_one(&mut *txn)
-        .await
-        .map_err(|e| DatabaseError::query(sql, e))?;
-    debug_assert_eq!(returned, test_id);
+    let description = req.description.unwrap_or_default();
+    let execute_in_host = req.execute_in_host.unwrap_or(false);
+    let timeout = req.timeout.unwrap_or(7200);
+    let read_only = req.read_only.unwrap_or(false);
+    let is_enabled = req.is_enabled.unwrap_or(true);
+    let img_name = req.img_name.clone();
+    let container_arg = req.container_arg.clone();
+    let external_config_file = req.external_config_file.clone();
+    let extra_output_file = req.extra_output_file.clone();
+    let extra_err_file = req.extra_err_file.clone();
+    let pre_condition = req.pre_condition.clone();
+    let custom_tags = if req.custom_tags.is_empty() {
+        None::<Vec<String>>
+    } else {
+        Some(req.custom_tags.clone())
+    };
+    let components = if req.components.is_empty() {
+        vec!["Compute".to_string()]
+    } else {
+        req.components.clone()
+    };
+    let version_str = version.version_string();
+    let modified_by = "User";
+
+    sqlx::query_scalar::<Postgres, String>(
+        r#"
+        INSERT INTO machine_validation_tests (
+            test_id,
+            name,
+            description,
+            img_name,
+            container_arg,
+            execute_in_host,
+            external_config_file,
+            command,
+            args,
+            extra_output_file,
+            extra_err_file,
+            pre_condition,
+            contexts,
+            timeout,
+            version,
+            supported_platforms,
+            modified_by,
+            verified,
+            read_only,
+            custom_tags,
+            components,
+            is_enabled
+        ) VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22
+        )
+        RETURNING test_id
+        "#,
+    )
+    .bind(&test_id)
+    .bind(&req.name)
+    .bind(&description)
+    .bind(img_name.as_ref())
+    .bind(container_arg.as_ref())
+    .bind(execute_in_host)
+    .bind(external_config_file.as_ref())
+    .bind(&req.command)
+    .bind(&req.args)
+    .bind(extra_output_file.as_ref())
+    .bind(extra_err_file.as_ref())
+    .bind(pre_condition.as_ref())
+    .bind(&req.contexts)
+    .bind(timeout)
+    .bind(&version_str)
+    .bind(&req.supported_platforms)
+    .bind(modified_by)
+    .bind(false)
+    .bind(read_only)
+    .bind(custom_tags.as_ref())
+    .bind(&components)
+    .bind(is_enabled)
+    .fetch_one(txn)
+    .await
+    .map_err(|e| DatabaseError::query("INSERT machine_validation_tests", e))?;
+
     Ok(test_id)
 }
 
@@ -391,13 +206,87 @@ pub async fn update(
         .map(|p| re.replace_all(p, "_").to_string().to_ascii_lowercase())
         .collect();
 
-    let mut qb = push_update(&payload, &req.version, &req.test_id, "User")?;
-    let q = qb.build_query_scalar::<String>();
-    let sql = q.sql();
-    q.fetch_one(&mut *txn)
-        .await
-        .map_err(|e| DatabaseError::query(sql, e))?;
-    Ok(req.test_id)
+    // Match prior behavior: any update without an explicit `verified` forces re-verification.
+    let verified = payload.verified.unwrap_or(false);
+    let modified_by = "User";
+
+    let contexts = patch_vec(&payload.contexts);
+    let supported_platforms = patch_vec(&payload.supported_platforms);
+    let custom_tags = patch_vec(&payload.custom_tags);
+    let components = patch_vec(&payload.components);
+
+    let name = payload.name.as_deref();
+    let description = payload.description.as_deref();
+    let img_name = payload.img_name.as_deref();
+    let container_arg = payload.container_arg.as_deref();
+    let execute_in_host = payload.execute_in_host;
+    let external_config_file = payload.external_config_file.as_deref();
+    let command = payload.command.as_deref();
+    let args = payload.args.as_deref();
+    let extra_output_file = payload.extra_output_file.as_deref();
+    let extra_err_file = payload.extra_err_file.as_deref();
+    let pre_condition = payload.pre_condition.as_deref();
+    let timeout = payload.timeout;
+    let is_enabled = payload.is_enabled;
+
+    let test_id = sqlx::query_scalar::<Postgres, String>(
+        r#"
+        UPDATE machine_validation_tests SET
+            name = COALESCE($1, name),
+            description = COALESCE($2, description),
+            img_name = COALESCE($3, img_name),
+            container_arg = COALESCE($4, container_arg),
+            execute_in_host = COALESCE($5, execute_in_host),
+            external_config_file = COALESCE($6, external_config_file),
+            command = COALESCE($7, command),
+            args = COALESCE($8, args),
+            extra_output_file = COALESCE($9, extra_output_file),
+            extra_err_file = COALESCE($10, extra_err_file),
+            pre_condition = COALESCE($11, pre_condition),
+            contexts = COALESCE($12, contexts),
+            timeout = COALESCE($13, timeout),
+            supported_platforms = COALESCE($14, supported_platforms),
+            custom_tags = COALESCE($15, custom_tags),
+            components = COALESCE($16, components),
+            is_enabled = COALESCE($17, is_enabled),
+            verified = $18,
+            modified_by = $19
+        WHERE test_id = $20 AND version = $21
+        RETURNING test_id
+        "#,
+    )
+    .bind(name)
+    .bind(description)
+    .bind(img_name)
+    .bind(container_arg)
+    .bind(execute_in_host)
+    .bind(external_config_file)
+    .bind(command)
+    .bind(args)
+    .bind(extra_output_file)
+    .bind(extra_err_file)
+    .bind(pre_condition)
+    .bind(contexts.as_ref())
+    .bind(timeout)
+    .bind(supported_platforms.as_ref())
+    .bind(custom_tags.as_ref())
+    .bind(components.as_ref())
+    .bind(is_enabled)
+    .bind(verified)
+    .bind(modified_by)
+    .bind(&req.test_id)
+    .bind(&req.version)
+    .fetch_optional(txn)
+    .await
+    .map_err(|e| DatabaseError::query("UPDATE machine_validation_tests", e))?
+    .ok_or_else(|| {
+        DatabaseError::InvalidArgument(format!(
+            "No row updated for test_id={} version={}",
+            req.test_id, req.version
+        ))
+    })?;
+
+    Ok(test_id)
 }
 
 pub async fn clone(
@@ -477,59 +366,8 @@ mod tests {
     }
 
     #[test]
-    fn select_query_uses_lower_for_test_id_and_placeholders() {
-        let req = MachineValidationTestsGetRequest {
-            test_id: Some("Forge_MyTest".to_string()),
-            ..Default::default()
-        };
-        let mut qb = QueryBuilder::new("SELECT * FROM ");
-        qb.push(MVT_TABLE);
-        qb.push(" WHERE 1=1");
-        push_select_filters(&mut qb, &req);
-        qb.push(" ORDER BY version DESC, name ASC");
-        let sql = qb.build().sql();
-        assert!(
-            sql.contains("LOWER(test_id)"),
-            "Expected LOWER(test_id), got: {sql}"
-        );
-        assert!(
-            sql.contains("LOWER(") && sql.contains(')'),
-            "Expected bound LOWER comparison, got: {sql}"
-        );
-    }
-
-    #[test]
-    fn select_query_boolean_uses_placeholder() {
-        let req = MachineValidationTestsGetRequest {
-            is_enabled: Some(true),
-            ..Default::default()
-        };
-        let mut qb = QueryBuilder::new("SELECT * FROM ");
-        qb.push(MVT_TABLE);
-        qb.push(" WHERE 1=1");
-        push_select_filters(&mut qb, &req);
-        let sql = qb.build().sql();
-        assert!(
-            sql.contains("is_enabled = $"),
-            "Expected parameterized is_enabled, got: {sql}"
-        );
-    }
-
-    #[test]
-    fn select_query_empty_request_is_select_all() {
-        let req = MachineValidationTestsGetRequest::default();
-        let mut qb = QueryBuilder::new("SELECT * FROM ");
-        qb.push(MVT_TABLE);
-        qb.push(" WHERE 1=1");
-        push_select_filters(&mut qb, &req);
-        let sql = qb.build().sql();
-        assert!(
-            sql.contains("WHERE 1=1"),
-            "Empty request should have no extra filters, got: {sql}"
-        );
-        assert!(
-            !sql.contains("LOWER(test_id)"),
-            "Empty request should not filter test_id, got: {sql}"
-        );
+    fn patch_vec_empty_is_none() {
+        assert!(patch_vec(&[]).is_none());
+        assert_eq!(patch_vec(&["a".into()]), Some(vec!["a".to_string()]));
     }
 }
