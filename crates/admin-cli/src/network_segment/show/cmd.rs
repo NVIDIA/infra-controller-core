@@ -315,14 +315,15 @@ async fn show_network_information(
         return Err(CarbideCliError::SegmentNotFound);
     };
 
-    // Try the new FindNetworkSegmentStateHistories RPC first; fall back to the inline
+    // Try the `FindNetworkSegmentStateHistories` RPC first; fall back to the inline
     // history field populated by old servers that lack the new RPC.
     #[allow(deprecated)]
-    let history = match api_client.get_segment_state_history(segment_id).await {
-        Ok(records) if !records.is_empty() => records,
-        Ok(_) => convert_old_history(&segment.history),
-        Err(_) => convert_old_history(&segment.history),
-    };
+    let history = api_client
+        .get_segment_state_history(segment_id)
+        .await
+        .ok()
+        .filter(|r| !r.is_empty())
+        .unwrap_or_else(|| convert_old_history(&segment.history));
 
     if json {
         println!("{}", serde_json::to_string_pretty(&segment)?);
@@ -432,6 +433,7 @@ mod tests {
                     state_reason: None,
                     sla: None,
                 }),
+                tenant_state: forgerpc::TenantState::Ready as i32,
             }),
             metadata: Some(forgerpc::Metadata {
                 name: name.to_string(),

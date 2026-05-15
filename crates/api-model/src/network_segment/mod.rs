@@ -680,6 +680,7 @@ impl TryFrom<NetworkSegment> for rpc::NetworkSegment {
                     state_reason: state_reason.clone(),
                     sla: Some(sla),
                 }),
+                tenant_state: tenant_state as i32,
             }),
             metadata: Some(rpc::forge::Metadata {
                 name: src.config.name.clone(),

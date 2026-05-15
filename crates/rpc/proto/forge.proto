@@ -2300,6 +2300,9 @@ message NetworkSegmentStatus {
 
   // Lifecycle related status
   LifecycleStatus lifecycle = 2;
+
+  // Coarse tenant-facing state derived from lifecycle.state at the server side.
+  TenantState tenant_state = 3;
 }
 
 message NetworkSegment {
@@ -2332,7 +2335,7 @@ message NetworkSegment {
 
   // Deprecated: use status.lifecycle.version
   string version = 99 [deprecated = true];
-  // Deprecated: use status.lifecycle.state
+  // Deprecated: use status.tenant_state (coarse) or status.lifecycle.state (full controller state)
   TenantState state = 100 [deprecated = true];
   // Deprecated: use FindNetworkSegmentStateHistories RPC
   repeated NetworkSegmentStateHistory history = 101 [deprecated = true];

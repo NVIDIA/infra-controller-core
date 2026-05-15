@@ -17,6 +17,8 @@
 
 use std::sync::Arc;
 
+use super::{Base, filters};
+use crate::api::Api;
 use askama::Template;
 use axum::Json;
 use axum::extract::{Path as AxumPath, State as AxumState};
@@ -26,10 +28,6 @@ use carbide_uuid::network::NetworkSegmentId;
 use hyper::http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
-use serde_json::json;
-
-use super::{Base, filters};
-use crate::api::Api;
 
 #[derive(Template)]
 #[template(path = "network_segment_show.html")]
@@ -87,21 +85,6 @@ impl TryFrom<forgerpc::NetworkSegment> for NetworkSegmentRowDisplay {
             version: lifecycle.map(|lc| lc.version.clone()).unwrap_or_default(),
         })
     }
-}
-
-/// Serializes a network segment for the REST API, injecting a `tenant_state` field.
-///
-/// `tenant_state` is derived here rather than carried in the proto because it is a
-/// presentation concern for end users — the proto's `status.lifecycle.state` already
-/// contains the full controller state for developers and site admins.
-fn segment_to_json(s: forgerpc::NetworkSegment) -> serde_json::Value {
-    let lifecycle = s.status.as_ref().and_then(|st| st.lifecycle.as_ref());
-    let tenant_state = super::tenant_state_from_lifecycle(lifecycle, s.deleted.is_some());
-    let mut v = serde_json::to_value(&s).expect("NetworkSegment serialization never fails");
-    if let serde_json::Value::Object(ref mut map) = v {
-        map.insert("tenant_state".to_owned(), json!(tenant_state));
-    }
-    v
 }
 
 /// List network segments
@@ -173,8 +156,7 @@ pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
                 .into_response();
         }
     };
-    let response: Vec<serde_json::Value> = networks.into_iter().map(segment_to_json).collect();
-    (StatusCode::OK, Json(response)).into_response()
+    (StatusCode::OK, Json(networks)).into_response()
 }
 
 async fn fetch_network_segments(
@@ -389,7 +371,7 @@ pub async fn detail(
     };
 
     if show_json {
-        return (StatusCode::OK, Json(segment_to_json(segment))).into_response();
+        return (StatusCode::OK, Json(segment)).into_response();
     }
 
     let mut domain_name = String::new();
@@ -436,50 +418,3 @@ pub async fn detail(
 
 impl super::Base for NetworkSegmentShow {}
 impl super::Base for NetworkSegmentDetail {}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[allow(deprecated)]
-    fn make_segment(lifecycle_state: &str, deleted: bool) -> forgerpc::NetworkSegment {
-        forgerpc::NetworkSegment {
-            deleted: deleted.then(|| prost_types::Timestamp::default().into()),
-            status: Some(forgerpc::NetworkSegmentStatus {
-                lifecycle: Some(forgerpc::LifecycleStatus {
-                    state: lifecycle_state.to_string(),
-                    ..Default::default()
-                }),
-                ..Default::default()
-            }),
-            ..Default::default()
-        }
-    }
-
-    #[test]
-    fn segment_to_json_injects_tenant_state() {
-        assert_eq!(
-            segment_to_json(make_segment(r#"{"state":"provisioning"}"#, false))["tenant_state"],
-            "Provisioning",
-        );
-
-        assert_eq!(
-            segment_to_json(make_segment(r#"{"state":"ready"}"#, false))["tenant_state"],
-            "Ready",
-        );
-
-        assert_eq!(
-            segment_to_json(make_segment(
-                r#"{"state":"deleting","deletion_state":{"state":"dbdelete"}}"#,
-                false,
-            ))["tenant_state"],
-            "Terminating",
-        );
-
-        // Deleted flag overrides lifecycle state.
-        assert_eq!(
-            segment_to_json(make_segment(r#"{"state":"ready"}"#, true))["tenant_state"],
-            "Terminating",
-        );
-    }
-}
