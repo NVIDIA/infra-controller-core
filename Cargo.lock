@@ -2232,7 +2232,6 @@ dependencies = [
  "async-trait",
  "carbide-api-db",
  "carbide-api-model",
- "carbide-rpc",
  "carbide-secrets",
  "carbide-utils",
  "carbide-uuid",

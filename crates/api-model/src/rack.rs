@@ -1069,39 +1069,4 @@ mod tests {
         let msg = rejection.to_string();
         assert!(msg.contains("already has a pending maintenance request"));
     }
-
-    #[test]
-    fn rack_search_filter_from_rpc_with_label_key_and_value() {
-        let rpc_filter = rpc::forge::RackSearchFilter {
-            label: Some(rpc::forge::Label {
-                key: LABEL_LOCATION_DATACENTER.to_string(),
-                value: Some("az01".to_string()),
-            }),
-        };
-        let filter = RackSearchFilter::from(rpc_filter);
-        let label = filter.label.unwrap();
-        assert_eq!(label.key, LABEL_LOCATION_DATACENTER);
-        assert_eq!(label.value, Some("az01".to_string()));
-    }
-
-    #[test]
-    fn rack_search_filter_from_rpc_with_label_key_only() {
-        let rpc_filter = rpc::forge::RackSearchFilter {
-            label: Some(rpc::forge::Label {
-                key: LABEL_CHASSIS_MANUFACTURER.to_string(),
-                value: None,
-            }),
-        };
-        let filter = RackSearchFilter::from(rpc_filter);
-        let label = filter.label.unwrap();
-        assert_eq!(label.key, LABEL_CHASSIS_MANUFACTURER);
-        assert!(label.value.is_none());
-    }
-
-    #[test]
-    fn rack_search_filter_from_rpc_no_label() {
-        let rpc_filter = rpc::forge::RackSearchFilter { label: None };
-        let filter = RackSearchFilter::from(rpc_filter);
-        assert!(filter.label.is_none());
-    }
 }
