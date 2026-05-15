@@ -36,24 +36,20 @@ use crate::common::{AppState, Machine};
 /// static-assignments segment), it's written into the `[forge-system]`
 /// section so the DPU agent connects to the correct API endpoint
 /// instead of defaulting to `carbide-api.forge`.
-//
-// TODO(chet): This should take a MachineInterfaceId, but I think by doing that,
-// then agent_config (which is in host-support), would need to import forge-api,
-// which I think would then make it so scout + the agent start having a dep on
-// api/ -- I don't think it's a problem, but I'll propose it in a separate MR.
 fn generate_forge_agent_config(
     machine_interface_id: MachineInterfaceId,
     api_url_override: Option<&str>,
 ) -> String {
-    let interface_id = uuid::Uuid::parse_str(&machine_interface_id.to_string()).unwrap();
     let config = agent_config::AgentConfigFromPxe {
         forge_system: api_url_override.map(|url| agent_config::ForgeSystemConfigFromPxe {
             api_server: url.to_string(),
         }),
-        machine: agent_config::MachineConfigFromPxe { interface_id },
+        machine: agent_config::MachineConfigFromPxe {
+            interface_id: machine_interface_id,
+        },
     };
 
-    toml::to_string(&config).unwrap()
+    toml::to_string(&config).unwrap_or_else(|e| format!("# serialization error: {e}"))
 }
 
 fn print_and_generate_generic_error(error: String) -> (String, HashMap<String, String>) {
@@ -121,10 +117,9 @@ fn user_data_handler(
         .unwrap_or("".to_string());
     context.insert("forge_bmc_fw_update".to_string(), bmc_fw_update);
 
-    let start = SystemTime::now();
-    let seconds_since_epoch = start
+    let seconds_since_epoch = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .expect("Time went backwards")
+        .unwrap_or(std::time::Duration::ZERO)
         .as_secs();
 
     context.insert(

@@ -92,6 +92,10 @@ impl InternalRBACRules {
             "FindNetworkSegmentsByIds",
             vec![ForgeAdminCLI, Machineatron, SiteAgent],
         );
+        x.perm(
+            "FindNetworkSegmentStateHistories",
+            vec![ForgeAdminCLI, Machineatron, SiteAgent],
+        );
         x.perm("CreateNetworkSegment", vec![Machineatron, SiteAgent]);
         x.perm(
             "DeleteNetworkSegment",
@@ -702,6 +706,10 @@ impl InternalRBACRules {
             vec![ForgeAdminCLI, Machineatron, Flow],
         );
         x.perm(
+            "SetPowerShelfMaintenance",
+            vec![ForgeAdminCLI, Machineatron, Flow],
+        );
+        x.perm(
             "FindSwitches",
             vec![ForgeAdminCLI, Machineatron, Flow, Health],
         );
@@ -833,6 +841,8 @@ impl InternalRBACRules {
         x.perm("UpdateComponentFirmware", vec![ForgeAdminCLI, Flow]);
         x.perm("GetComponentFirmwareStatus", vec![ForgeAdminCLI, Flow]);
         x.perm("ListComponentFirmwareVersions", vec![ForgeAdminCLI, Flow]);
+        x.perm("GetDPFHostSnapshot", vec![ForgeAdminCLI]);
+        x.perm("GetDPFServiceVersions", vec![ForgeAdminCLI]);
         x
     }
     fn perm(&mut self, msg: &str, principals: Vec<RulePrincipal>) {

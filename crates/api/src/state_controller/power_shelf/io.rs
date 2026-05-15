@@ -153,6 +153,13 @@ impl StateControllerIO for PowerShelfStateControllerIO {
             PowerShelfControllerState::FetchingData => ("fetching_data", ""),
             PowerShelfControllerState::Configuring => ("configuring", ""),
             PowerShelfControllerState::Ready => ("ready", ""),
+            PowerShelfControllerState::Maintenance { operation } => {
+                let op = match operation {
+                    model::power_shelf::PowerShelfMaintenanceOperation::PowerOn => "power_on",
+                    model::power_shelf::PowerShelfMaintenanceOperation::PowerOff => "power_off",
+                };
+                ("maintenance", op)
+            }
             PowerShelfControllerState::Error { .. } => ("error", ""),
             PowerShelfControllerState::Deleting => ("deleting", ""),
         }

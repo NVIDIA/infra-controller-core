@@ -157,7 +157,7 @@ impl<'a> MockExploredHost<'a> {
                     self.managed_host.dpus[dpu_index as usize].bmc_mac_address,
                     FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY.ip(),
                 )
-                .vendor_string("SomeVendor")
+                .vendor_string("NVIDIA/BF/BMC")
                 .tonic_request(),
             )
             .await;
@@ -1551,6 +1551,7 @@ pub async fn new_power_shelf(
     let new_power_shelf = NewPowerShelf {
         id: power_shelf_id,
         config,
+        bmc_mac_address: None,
         metadata: None,
         rack_id: None,
     };

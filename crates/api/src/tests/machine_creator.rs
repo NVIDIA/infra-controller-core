@@ -46,6 +46,23 @@ use crate::tests::common::api_fixtures::dpu::DpuConfig;
 use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
 use crate::tests::common::rpc_builder::DhcpDiscovery;
 
+async fn discover_dpu_bmc_ip(
+    env: &common::api_fixtures::TestEnv,
+    bmc_mac_address: MacAddress,
+) -> Result<IpAddr, Box<dyn std::error::Error>> {
+    let response = env
+        .api
+        .discover_dhcp(
+            DhcpDiscovery::builder(bmc_mac_address, "192.0.1.1")
+                .vendor_string("NVIDIA/BF/BMC")
+                .tonic_request(),
+        )
+        .await?
+        .into_inner();
+
+    Ok(response.address.parse()?)
+}
+
 #[crate::sqlx_test]
 async fn test_site_explorer_reject_zero_dpu_hosts(
     pool: sqlx::PgPool,
@@ -228,10 +245,11 @@ async fn test_site_explorer_creates_managed_host(
     let host_bmc_ip = addresses.remove(0);
 
     let dpu_report = Arc::new(dpu_report);
+    let dpu_bmc_ip = discover_dpu_bmc_ip(&env, mock_dpu.bmc_mac_address).await?;
     let exploration_report = ExploredManagedHost {
         host_bmc_ip: IpAddr::from_str(&host_bmc_ip)?,
         dpus: vec![ExploredDpu {
-            bmc_ip: IpAddr::from_str(response.address.as_str())?,
+            bmc_ip: dpu_bmc_ip,
             host_pf_mac_address: Some(mock_dpu.host_mac_address),
             report: dpu_report.clone(),
         }],
@@ -280,7 +298,7 @@ async fn test_site_explorer_creates_managed_host(
     );
     assert_eq!(
         dpu_machine.bmc_info.ip.clone().unwrap(),
-        response.address.to_string()
+        dpu_bmc_ip.to_string()
     );
 
     assert_eq!(
@@ -516,7 +534,7 @@ async fn test_site_explorer_creates_managed_host(
         db::machine_topology::find_machine_bmc_pairs_by_machine_id(&mut txn, vec![dpu_machine.id])
             .await?;
     assert_eq!(pairs.len(), 1);
-    assert_eq!(pairs[0].1, Some("192.0.1.4".to_string()));
+    assert_eq!(pairs[0].1, Some(dpu_bmc_ip.to_string()));
 
     let topology = &topologies[&dpu_machine.id][0];
     assert!(topology.topology_update_needed());
@@ -643,7 +661,7 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
     let mock_host =
         ManagedHostConfig::with_dpus((0..NUM_DPUS).map(|_| DpuConfig::default()).collect());
 
-    for (i, mock_dpu) in mock_host.dpus.iter().enumerate() {
+    for mock_dpu in &mock_host.dpus {
         let oob_mac = mock_dpu.oob_mac_address;
         let response = env
             .api
@@ -665,8 +683,9 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
         let mut dpu_report: EndpointExplorationReport = mock_dpu.clone().into();
         dpu_report.generate_machine_id(false)?;
         let dpu_report = Arc::new(dpu_report);
+        let dpu_bmc_ip = discover_dpu_bmc_ip(&env, mock_dpu.bmc_mac_address).await?;
         explored_dpus.push(ExploredDpu {
-            bmc_ip: IpAddr::from_str(format!("192.168.1.{i}").as_str())?,
+            bmc_ip: dpu_bmc_ip,
             host_pf_mac_address: Some(mock_dpu.host_mac_address),
             report: dpu_report.clone(),
         })
@@ -929,7 +948,7 @@ async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
     let dpu_report = Arc::new(dpu_report);
 
     let explored_dpus = vec![ExploredDpu {
-        bmc_ip: IpAddr::from_str("192.168.1.2")?,
+        bmc_ip: discover_dpu_bmc_ip(&env, mock_dpu.bmc_mac_address).await?,
         host_pf_mac_address: Some(mock_dpu.host_mac_address),
         report: dpu_report.clone(),
     }];
@@ -1039,7 +1058,7 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
     let dpu_machine_id = dpu_report.machine_id.unwrap();
 
     let explored_dpus = vec![ExploredDpu {
-        bmc_ip: IpAddr::from_str("192.168.1.2")?,
+        bmc_ip: discover_dpu_bmc_ip(&env, mock_dpu.bmc_mac_address).await?,
         host_pf_mac_address: Some(mock_dpu.host_mac_address),
         report: dpu_report.clone(),
     }];
@@ -1274,10 +1293,11 @@ async fn test_site_explorer_creates_managed_host_with_dpf_disable(
     let host_bmc_ip = addresses.remove(0);
 
     let dpu_report = Arc::new(dpu_report);
+    let dpu_bmc_ip = discover_dpu_bmc_ip(&env, mock_dpu.bmc_mac_address).await?;
     let exploration_report = ExploredManagedHost {
         host_bmc_ip: IpAddr::from_str(&host_bmc_ip)?,
         dpus: vec![ExploredDpu {
-            bmc_ip: IpAddr::from_str(response.address.as_str())?,
+            bmc_ip: dpu_bmc_ip,
             host_pf_mac_address: Some(mock_dpu.host_mac_address),
             report: dpu_report.clone(),
         }],
@@ -1422,10 +1442,11 @@ async fn test_site_explorer_creates_managed_host_with_dpf_enabled(
     let host_bmc_ip = addresses.remove(0);
 
     let dpu_report = Arc::new(dpu_report);
+    let dpu_bmc_ip = discover_dpu_bmc_ip(&env, mock_dpu.bmc_mac_address).await?;
     let exploration_report = ExploredManagedHost {
         host_bmc_ip: IpAddr::from_str(&host_bmc_ip)?,
         dpus: vec![ExploredDpu {
-            bmc_ip: IpAddr::from_str(response.address.as_str())?,
+            bmc_ip: dpu_bmc_ip,
             host_pf_mac_address: Some(mock_dpu.host_mac_address),
             report: dpu_report.clone(),
         }],

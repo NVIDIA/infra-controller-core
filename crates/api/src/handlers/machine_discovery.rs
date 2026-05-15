@@ -21,6 +21,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 pub use ::rpc::forge as rpc;
+use carbide_uuid::machine::MachineIdSource;
 use carbide_uuid::nvlink::NvLinkDomainId;
 use db::WithTransaction;
 use futures_util::FutureExt;
@@ -154,6 +155,18 @@ pub(crate) async fn discover_machine(
 
     let interface =
         db::machine_interface::find_by_ip_or_id(&mut txn, remote_ip, interface_id).await?;
+    if !hardware_info.is_dpu()
+        && hardware_info.tpm_ek_certificate.is_none()
+        && stable_machine_id.source() == MachineIdSource::ProductBoardChassisSerial
+        && let Some(existing_machine_id) = interface.machine_id
+        && existing_machine_id.source() == MachineIdSource::Tpm
+        && existing_machine_id.machine_type().is_host()
+    {
+        return Err(CarbideError::FailedPrecondition(format!(
+            "TPM EK certificate missing for host discovery on InterfaceId {interface_id:?}; refusing to derive serial-based machine id {stable_machine_id} for existing TPM-derived machine id {existing_machine_id}"
+        ))
+        .into());
+    }
     let machine_id = if hardware_info.is_dpu() {
         // if site explorer is creating machine records and there isn't one for this machine return an error
         if api

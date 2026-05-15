@@ -37,61 +37,6 @@ async fn resolve_segment_for_static_ip(
     }
 }
 
-/// Pre-allocate a `machine_interface` with a static address so Site Explorer can discover the BMC
-/// at that IP. Expected machine / switch / power shelf handlers call this when the operator sets a
-/// configured BMC IP before DHCP has appeared.
-///
-/// If the IP is within a managed network prefix, the interface is created on that segment.
-/// Otherwise it uses the internal `static-assignments` anchor segment.
-///
-/// Fails if a `machine_interface` already exists for this MAC. Use
-/// [`update_preallocated_machine_interface`] to follow up on an existing interface.
-pub async fn preallocate_machine_interface(
-    txn: &mut sqlx::PgConnection,
-    bmc_mac_address: MacAddress,
-    bmc_ip: std::net::IpAddr,
-) -> Result<(), CarbideError> {
-    // Check if an interface already exists for this MAC.
-    let existing = db::machine_interface::find_by_mac_address(&mut *txn, bmc_mac_address).await?;
-    if !existing.is_empty() {
-        return Err(CarbideError::InvalidArgument(format!(
-            "a machine interface already exists for MAC {bmc_mac_address}; \
-             use update to change the IP address"
-        )));
-    }
-
-    // Check if the IP is already allocated to another interface.
-    if let Some(existing_addr) =
-        db::machine_interface_address::find_by_address(&mut *txn, bmc_ip).await?
-    {
-        return Err(CarbideError::InvalidArgument(format!(
-            "IP address {bmc_ip} is already allocated to interface {} \
-             on segment {}; use 'machine-interfaces assign-address' to reassign it",
-            existing_addr.id, existing_addr.name,
-        )));
-    }
-
-    let segment = resolve_segment_for_static_ip(txn, bmc_ip).await?;
-
-    db::machine_interface::create(
-        txn,
-        std::slice::from_ref(&segment),
-        &bmc_mac_address,
-        true,
-        AddressSelectionStrategy::StaticAddress(bmc_ip),
-    )
-    .await?;
-
-    tracing::info!(
-        %bmc_mac_address,
-        %bmc_ip,
-        segment_id = %segment.id,
-        "Pre-allocated static machine interface"
-    );
-
-    Ok(())
-}
-
 /// Update or create a machine_interface with a static address.
 ///
 /// If no interface exists for this MAC, creates a new one. If an
@@ -121,7 +66,7 @@ pub async fn update_preallocated_machine_interface(
                     txn,
                     iface.id,
                     segment.id,
-                    segment.subdomain_id,
+                    segment.config.subdomain_id,
                 )
                 .await?;
             }
@@ -192,7 +137,7 @@ pub async fn assign_static_address(
             &mut txn,
             interface_id,
             target_segment.id,
-            target_segment.subdomain_id,
+            target_segment.config.subdomain_id,
         )
         .await?;
         tracing::info!(

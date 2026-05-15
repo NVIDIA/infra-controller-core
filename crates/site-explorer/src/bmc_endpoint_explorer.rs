@@ -1303,7 +1303,7 @@ fn warn_report_diff(report1: &EndpointExplorationReport, report2: &EndpointExplo
             let mut report2_idx = (0..s2.inventories.len()).collect::<Vec<_>>();
             report2_idx.sort_by_key(|i| &s2.inventories[*i].id);
 
-            for (i1, i2) in report1_idx.into_iter().zip(report2_idx.into_iter()) {
+            for (i1, i2) in report1_idx.into_iter().zip(report2_idx) {
                 let i1 = &s1.inventories[i1];
                 let i2 = &s2.inventories[i2];
                 if i1.id != i2.id
@@ -1353,7 +1353,7 @@ fn warn_report_diff(report1: &EndpointExplorationReport, report2: &EndpointExplo
                 r2.diffs
             );
         } else {
-            for (i1, i2) in sst1_idx.into_iter().zip(sst2_idx.into_iter()) {
+            for (i1, i2) in sst1_idx.into_iter().zip(sst2_idx) {
                 let d1 = &r1.diffs[i1];
                 let d2 = &r2.diffs[i2];
                 if d1 != d2 {

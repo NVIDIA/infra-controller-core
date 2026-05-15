@@ -62,16 +62,16 @@ impl NetworkSegmentStateHandler {
     ) {
         // If there are no prefixes return.
         // Also, we don't want to put out stats for Tenant segments, as they are not under our control.
-        if state.prefixes.is_empty() || state.segment_type == NetworkSegmentType::Tenant {
+        if state.prefixes.is_empty() || state.config.segment_type == NetworkSegmentType::Tenant {
             return;
         }
 
         // The code below assumes that we have only one prefix of type IPV4
         ctx.metrics.available_ips = state.prefixes[0].num_free_ips as usize;
         ctx.metrics.reserved_ips = state.prefixes[0].num_reserved as usize;
-        ctx.metrics.seg_name = state.name.clone();
+        ctx.metrics.seg_name = state.config.name.clone();
 
-        ctx.metrics.seg_type = state.segment_type.to_string();
+        ctx.metrics.seg_type = state.config.segment_type.to_string();
         ctx.metrics.seg_id = state.id.to_string();
         ctx.metrics.prefix = state.prefixes[0].prefix.to_string();
 
@@ -169,10 +169,10 @@ impl StateHandler for NetworkSegmentStateHandler {
                     }
                     NetworkSegmentDeletionState::DBDelete => {
                         let mut txn = ctx.services.db_pool.begin().await?;
-                        if let Some(vni) = state.vni.take() {
+                        if let Some(vni) = state.status.vni.take() {
                             db::resource_pool::release(&self.pool_vni, &mut txn, vni).await?;
                         }
-                        if let Some(vlan_id) = state.vlan_id.take() {
+                        if let Some(vlan_id) = state.status.vlan_id.take() {
                             db::resource_pool::release(&self.pool_vlan_id, &mut txn, vlan_id)
                                 .await?;
                         }

@@ -299,6 +299,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.TrafficInterceptBridging", "#[derive(serde::Serialize)]")
         .type_attribute("forge.NetworkPrefix", "#[derive(serde::Serialize)]")
         .type_attribute("forge.NetworkPrefixEvent", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.NetworkSegmentConfig", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.NetworkSegmentStatus", "#[derive(serde::Serialize)]")
         .type_attribute("forge.NetworkSegment", "#[derive(serde::Serialize)]")
         .type_attribute("forge.IBPartitionConfig", "#[derive(serde::Serialize)]")
         .type_attribute("forge.IBPartitionStatus", "#[derive(serde::Serialize)]")

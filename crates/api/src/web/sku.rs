@@ -130,7 +130,7 @@ async fn fetch_skus(api: Arc<Api>) -> Result<Vec<forgerpc::Sku>, tonic::Status> 
             .await
             .map(|response| response.into_inner())?;
 
-        skus.extend(next_skus.skus.into_iter());
+        skus.extend(next_skus.skus);
         offset += page_size;
     }
 

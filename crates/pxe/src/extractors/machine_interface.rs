@@ -14,15 +14,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use std::collections::HashMap;
-
-use axum::extract::{FromRequestParts, Path, Query};
+use axum::extract::{FromRequestParts, Query};
 use axum::http::request::Parts;
 use axum_client_ip::ClientIp;
-use carbide_uuid::machine::MachineInterfaceId;
 use serde::{Deserialize, Serialize};
 
-use crate::common::{MachineInterface, MachineLookup};
+use crate::common::MachineInterface;
 use crate::extractors::machine_architecture::MachineArchitecture;
 use crate::rpc_error::PxeRequestError;
 
@@ -30,10 +27,6 @@ use crate::rpc_error::PxeRequestError;
 struct MaybeMachineInterface {
     #[serde(rename(deserialize = "buildarch"))]
     build_architecture: String,
-    #[serde(default)]
-    uuid: Option<MachineInterfaceId>,
-    #[serde(default)]
-    uuid_as_param: Option<String>,
     #[serde(default)]
     platform: Option<String>,
     #[serde(default)]
@@ -59,35 +52,20 @@ where
             // field; everything else is optional.
             return Err(PxeRequestError::InvalidBuildArch);
         };
-        let mut maybe = maybe.0;
-        maybe.uuid_as_param = Path::<HashMap<String, String>>::from_request_parts(parts, state)
-            .await
-            .ok()
-            .and_then(|params| params.0.get("uuid").cloned());
+        let maybe = maybe.0;
 
         let build_architecture = MachineArchitecture::try_from(maybe.build_architecture.as_str())?;
 
-        // Prefer interface_id (DHCP option 43.70 path) when present.
-        // Otherwise fall back to the source IP -- ClientIp uses
-        // X-Forwarded-For when a proxy injects it, and the TCP socket
-        // peer otherwise.
-        let lookup = match (maybe.uuid, maybe.uuid_as_param) {
-            (Some(uuid), _) => MachineLookup::InterfaceId(uuid),
-            (None, Some(uuid)) => MachineLookup::InterfaceId(uuid.parse().map_err(
-                |e: carbide_uuid::typed_uuids::UuidError| PxeRequestError::UuidConversion(e.into()),
-            )?),
-            (None, None) => {
-                let client_ip = ClientIp::from_request_parts(parts, state)
-                    .await
-                    .map_err(PxeRequestError::MissingIp)?
-                    .0;
-                MachineLookup::SourceIp(client_ip)
-            }
-        };
+        // ClientIp uses X-Forwarded-For when a proxy injects it, and falls
+        // back to the TCP socket peer otherwise.
+        let client_ip = ClientIp::from_request_parts(parts, state)
+            .await
+            .map_err(PxeRequestError::MissingIp)?
+            .0;
 
         Ok(MachineInterface {
             architecture: Some(build_architecture),
-            lookup,
+            client_ip,
             platform: maybe.platform,
             manufacturer: maybe.manufacturer,
             product: maybe.product,

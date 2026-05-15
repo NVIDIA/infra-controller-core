@@ -45,6 +45,7 @@ use model::expected_entity::ExpectedEntity;
 use model::expected_power_shelf::ExpectedPowerShelf;
 use model::machine::MachineInterfaceSnapshot;
 use model::machine::machine_search_config::MachineSearchConfig;
+use model::machine_interface::InterfaceType;
 use model::power_shelf::{NewPowerShelf, PowerShelfConfig};
 use model::resource_pool::common::CommonPools;
 use model::site_explorer::{
@@ -738,6 +739,27 @@ impl SiteExplorer {
             explored_endpoint.address
         );
 
+        // Defense against the duplicate-power-shelves bug: if a power shelf
+        // already exists in the database for this BMC MAC, don't make another
+        // one. This mirrors the dedup check on the switch creation path and
+        // catches the case where the input we hash to mint the
+        // `PowerShelfId` drifts between exploration cycles.
+        if let Some(existing) =
+            db_power_shelf::find_by_bmc_mac_address(&mut txn, expected_shelf.bmc_mac_address)
+                .await?
+        {
+            tracing::warn!(
+                bmc_mac = %expected_shelf.bmc_mac_address,
+                existing_power_shelf_id = %existing.id,
+                endpoint = %explored_endpoint.address,
+                "Power shelf already exists for this BMC MAC; skipping discovery",
+            );
+            txn.rollback()
+                .await
+                .map_err(|e| DatabaseError::new("rollback create_power_shelf", e))?;
+            return Ok(false);
+        }
+
         // Check if a power shelf with the same name already exists
         if !expected_shelf.metadata.name.is_empty() {
             let existing_power_shelves = db_power_shelf::find_by(
@@ -794,6 +816,7 @@ impl SiteExplorer {
         let new_power_shelf = NewPowerShelf {
             id: power_shelf_id,
             config,
+            bmc_mac_address: Some(expected_shelf.bmc_mac_address),
             metadata: Some(expected_shelf.metadata.clone()),
             rack_id: expected_shelf.rack_id.clone(),
         };
@@ -1419,7 +1442,8 @@ impl SiteExplorer {
         let underlay_interfaces: Vec<MachineInterfaceSnapshot> = interfaces
             .into_iter()
             .filter(|iface| {
-                underlay_segments.contains(&iface.segment_id) && iface.machine_id.is_none()
+                underlay_segments.contains(&iface.segment_id)
+                    && (iface.machine_id.is_none() || iface.interface_type == InterfaceType::Bmc)
             })
             .collect();
 
@@ -1662,13 +1686,20 @@ impl SiteExplorer {
                 && let Some(bmc_version) = report.versions.get(&FirmwareComponentType::Bmc)
                 && let Some(uefi_version) = report.versions.get(&FirmwareComponentType::Uefi)
             {
-                db::machine_topology::update_firmware_version_by_bmc_address(
-                    &mut txn,
-                    &address,
-                    bmc_version,
-                    uefi_version,
-                )
-                .await?;
+                let machine_id = match report.machine_id.as_ref().copied() {
+                    Some(machine_id) => Some(machine_id),
+                    None => db::machine::find_id_by_bmc_ip(&mut txn, &address).await?,
+                };
+
+                if let Some(machine_id) = machine_id {
+                    db::machine_topology::update_firmware_version_by_machine_id(
+                        &mut txn,
+                        &machine_id,
+                        bmc_version,
+                        uefi_version,
+                    )
+                    .await?;
+                }
             }
 
             match endpoint.last_explored {

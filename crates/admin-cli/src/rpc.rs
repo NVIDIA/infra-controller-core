@@ -21,7 +21,7 @@ use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use ::rpc::forge::instance_interface_config::NetworkDetails;
 use ::rpc::forge::{
     self as rpc, BmcEndpointRequest, FindInstanceTypesByIdsRequest,
-    FindNetworkSecurityGroupsByIdsRequest, GetDpfStateRequest,
+    FindNetworkSecurityGroupsByIdsRequest, GetDpfHostSnapshotRequest, GetDpfStateRequest,
     GetNetworkSecurityGroupAttachmentsRequest, GetNetworkSecurityGroupPropagationStatusRequest,
     IdentifySerialRequest, MachineHardwareInfo, MachineHardwareInfoUpdateType,
     ModifyDpfStateRequest, NetworkPrefix, NetworkSecurityGroupAttributes,
@@ -407,10 +407,30 @@ impl ApiClient {
     ) -> CarbideCliResult<rpc::NetworkSegmentList> {
         let request = rpc::NetworkSegmentsByIdsRequest {
             network_segments_ids: network_segments_ids.to_vec(),
-            include_history: network_segments_ids.len() == 1, // only request it when getting data for single resource
+            // Request inline history for single-segment lookups so old servers (lacking the
+            // FindNetworkSegmentStateHistories RPC) still populate the deprecated history field.
+            include_history: network_segments_ids.len() == 1,
             include_num_free_ips: true,
         };
         Ok(self.0.find_network_segments_by_ids(request).await?)
+    }
+
+    pub async fn get_segment_state_history(
+        &self,
+        segment_id: NetworkSegmentId,
+    ) -> CarbideCliResult<Vec<rpc::StateHistoryRecord>> {
+        let mut result = self
+            .0
+            .find_network_segment_state_histories(rpc::NetworkSegmentStateHistoriesRequest {
+                network_segment_ids: vec![segment_id],
+            })
+            .await?;
+
+        Ok(result
+            .histories
+            .remove(&segment_id.to_string())
+            .map(|h| h.records)
+            .unwrap_or_default())
     }
 
     pub async fn get_domains(
@@ -617,6 +637,7 @@ impl ApiClient {
         dpf_enabled: Option<bool>,
         bmc_ip_address: Option<String>,
         bmc_retain_credentials: Option<bool>,
+        dpu_mode: Option<::rpc::forge::DpuMode>,
         host_lifecycle_profile: Option<::rpc::forge::HostLifecycleProfile>,
     ) -> Result<(), CarbideCliError> {
         let get_req = match (bmc_mac_address, id) {
@@ -699,9 +720,7 @@ impl ApiClient {
             bmc_ip_address: bmc_ip_address.or(expected_machine.bmc_ip_address),
             bmc_retain_credentials: bmc_retain_credentials
                 .or(expected_machine.bmc_retain_credentials),
-            // Patch doesn't expose `--dpu-mode` yet; preserve the existing
-            // server-side value.
-            dpu_mode: expected_machine.dpu_mode,
+            dpu_mode: dpu_mode.map(|m| m as i32).or(expected_machine.dpu_mode),
             host_lifecycle_profile: host_lifecycle_profile
                 .or(expected_machine.host_lifecycle_profile),
         };
@@ -2202,5 +2221,21 @@ impl ApiClient {
         }
 
         Ok(all_dpf_states)
+    }
+
+    pub async fn get_dpf_host_snapshot(
+        &self,
+        host_machine_id: MachineId,
+    ) -> CarbideCliResult<String> {
+        let request = GetDpfHostSnapshotRequest {
+            host_machine_id: Some(host_machine_id),
+        };
+        let response = self.0.get_dpf_host_snapshot(request).await?;
+        Ok(response.json_payload)
+    }
+
+    pub async fn get_dpf_service_versions(&self) -> CarbideCliResult<Vec<rpc::DpfServiceVersion>> {
+        let response = self.0.get_dpf_service_versions().await?;
+        Ok(response.services)
     }
 }

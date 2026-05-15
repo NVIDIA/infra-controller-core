@@ -20,9 +20,10 @@ use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{
     BomValidating, CleanupState, FailureCause, FailureDetails, FailureSource, HostReprovisionState,
     InstanceState, MachineState, MachineValidatingState, ManagedHostState, MeasuringState,
-    ValidationState, get_action_for_dpu_state,
+    ValidationState,
 };
 use model::machine_validation::{MachineValidationState, MachineValidationStatus};
+use model::rpc_conv::machine::get_action_for_dpu_state;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;

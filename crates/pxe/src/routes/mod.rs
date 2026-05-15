@@ -14,10 +14,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use std::net::IpAddr;
+
 use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
-
-use crate::common::MachineLookup;
 
 pub(crate) mod cloud_init;
 pub(crate) mod ipxe;
@@ -29,7 +29,7 @@ pub struct RpcContext;
 impl RpcContext {
     async fn get_pxe_instructions(
         arch: rpc::MachineArchitecture,
-        lookup: &MachineLookup,
+        client_ip: IpAddr,
         product: Option<String>,
         url: &str,
         client_config: &ForgeClientConfig,
@@ -38,22 +38,22 @@ impl RpcContext {
         let mut client = forge_tls_client::ForgeTlsClient::retry_build(&api_config)
             .await
             .map_err(|err| err.to_string())?;
-        let (interface_id, client_ip) = match lookup {
-            MachineLookup::InterfaceId(id) => (Some(*id), None),
-            MachineLookup::SourceIp(ip) => (None, Some(ip.to_string())),
-        };
         let request = tonic::Request::new(rpc::PxeInstructionRequest {
             arch: arch as i32,
-            interface_id,
             product,
-            client_ip,
+            client_ip: Some(client_ip.to_string()),
+            // `interface_id` is deprecated; let Default fill it so we
+            // don't have to reference the deprecated field by name.
+            ..Default::default()
         });
         client
             .get_pxe_instructions(request)
             .await
             .map(|response| response.into_inner())
             .map_err(|error| {
-                format!("Error fetching PXE instructions for {lookup:?}; Error: {error}.")
+                format!(
+                    "Error fetching PXE instructions for client_ip {client_ip}; Error: {error}."
+                )
             })
     }
 }

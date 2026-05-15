@@ -1913,6 +1913,7 @@ dependencies = [
  "libudev",
  "logfmt",
  "procfs",
+ "rcgen",
  "regex",
  "rustls-pemfile",
  "serde",
@@ -1930,6 +1931,7 @@ dependencies = [
  "uname",
  "url",
  "uuid",
+ "x509-parser",
 ]
 
 [[package]]
@@ -3080,10 +3082,12 @@ dependencies = [
  "carbide-api-model",
  "carbide-api-test-helper",
  "carbide-macros",
+ "carbide-redfish",
  "carbide-secrets",
  "carbide-sqlx-testing",
  "carbide-uuid",
  "chrono",
+ "libredfish",
  "librms",
  "mac_address",
  "prost",

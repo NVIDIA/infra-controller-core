@@ -30,6 +30,7 @@ use model::hardware_info::MachineNvLinkInfo;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{LoadSnapshotOptions, Machine, ManagedHostState, ManagedHostStateSnapshot};
 use model::metadata::Metadata;
+use model::rpc_conv::machine::ManagedHostStateSnapshotRpc;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -771,7 +772,7 @@ pub async fn get_machine_position_info(
     let mut txn = api.txn_begin().await?;
 
     // Translate the machine IDs to BMC IPs.
-    // Note: Machines without topology records will be silently omitted from the result,
+    // Note: Machines without linked BMC interfaces will be silently omitted from the result,
     // consistent with how find_machines_by_ids handles missing machines.
     let pairs =
         db::machine_topology::find_machine_bmc_pairs_by_machine_id(&mut txn, request.machine_ids)

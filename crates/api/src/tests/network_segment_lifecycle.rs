@@ -20,7 +20,9 @@ use std::time::Duration;
 use carbide_uuid::network::NetworkSegmentId;
 use common::api_fixtures::network_segment::create_network_segment;
 use common::api_fixtures::{TestEnvOverrides, create_test_env, create_test_env_with_overrides};
-use common::network_segment::{create_network_segment_with_api, get_segment_state, text_history};
+use common::network_segment::{
+    create_network_segment_with_api, get_segment_state, tenant_state_from_segment, text_history,
+};
 use rpc::forge::forge_server::Forge;
 use tonic::Request;
 
@@ -41,10 +43,29 @@ async fn test_network_segment_lifecycle_impl(
             .await;
     assert!(segment.created.is_some());
     assert!(segment.deleted.is_none());
-    assert_eq!(segment.state(), rpc::forge::TenantState::Provisioning);
-    assert_eq!(segment.segment_type, seg_type);
+    assert_eq!(
+        tenant_state_from_segment(&segment),
+        rpc::forge::TenantState::Provisioning
+    );
+    assert_eq!(
+        segment
+            .config
+            .as_ref()
+            .map(|c| c.segment_type)
+            .unwrap_or_default(),
+        seg_type
+    );
     let segment_id: NetworkSegmentId = segment.id.unwrap();
-    let _: uuid::Uuid = segment.prefixes.first().unwrap().id.unwrap().into();
+    let _: uuid::Uuid = segment
+        .config
+        .as_ref()
+        .unwrap()
+        .prefixes
+        .first()
+        .unwrap()
+        .id
+        .unwrap()
+        .into();
 
     assert_eq!(
         get_segment_state(&env.api, segment_id).await,
@@ -73,11 +94,13 @@ async fn test_network_segment_lifecycle_impl(
             .network_segments;
 
         assert_eq!(segments.len(), 1);
-        assert_eq!(segments[0].prefixes.len(), 1);
-        assert_eq!(
-            segments[0].prefixes[0].free_ip_count,
-            255 - num_reserved as u32
-        );
+        let prefixes = segments[0]
+            .config
+            .as_ref()
+            .map(|c| c.prefixes.as_slice())
+            .unwrap_or(&[]);
+        assert_eq!(prefixes.len(), 1);
+        assert_eq!(prefixes[0].free_ip_count, 255 - num_reserved as u32);
     }
 
     env.api

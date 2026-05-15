@@ -3134,8 +3134,7 @@ async fn check_fw_component_version(
                 fw_component
                     .known_firmware
                     .iter()
-                    .filter(|fw_entry| !fw_entry.preingestion_exclusive_config)
-                    .next_back()
+                    .rfind(|fw_entry| !fw_entry.preingestion_exclusive_config)
                     .cloned()
             })
             .map(|f| f.version)
@@ -3188,7 +3187,6 @@ async fn check_fw_component_version(
                 .clone()
                 .firmware_version
                 .is_some_and(|v| v != cur_version)
-            && let Some(dpu_bmc_ip) = dpu_snapshot.bmc_addr().map(|a| a.ip())
         {
             let bios_version: String = redfish_client
                 .get_firmware("DPU_UEFI")
@@ -3209,10 +3207,10 @@ async fn check_fw_component_version(
                 });
 
             ctx.pending_db_writes.push(
-                // This is safe to defer to pending_db_writes because this is a no-op if for some
-                // reason dpu_bmc_ip is not found.
-                MachineWriteOp::UpdateFirmwareVersionByBmcAddress {
-                    bmc_address: dpu_bmc_ip,
+                // This is safe to defer to pending_db_writes because the DPU snapshot already has
+                // the machine ID needed for the topology update.
+                MachineWriteOp::UpdateFirmwareVersionByMachineId {
+                    machine_id: dpu_snapshot.id,
                     bmc_version: cur_version,
                     bios_version,
                 },
