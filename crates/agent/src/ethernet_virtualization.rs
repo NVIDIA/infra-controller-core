@@ -932,6 +932,9 @@ pub async fn update_dhcp(
     dhcp_grpc_server: Option<String>,
     interface_translation_mode: Option<&InterfaceTranslationMode>,
 ) -> eyre::Result<bool> {
+    // DPU-backed admin DHCP is authoritative only on the primary DPU. API-side
+    // reconciliation may move the active admin DHCP row between DPU-backed host
+    // interfaces, so secondary DPUs must not answer with stale host config.
     let stop_server = network_config.use_admin_network && !network_config.is_primary_dpu;
     if let Some(ref addr) = dhcp_grpc_server {
         if stop_server {

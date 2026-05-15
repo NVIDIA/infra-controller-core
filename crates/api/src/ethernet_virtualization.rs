@@ -231,11 +231,31 @@ pub async fn admin_network(
         .into());
     };
 
-    let admin_segment = admin_segments.iter().find(|v| v.id == interface.segment_id);
+    // Keep host_interface_id tied to the requesting DPU's host link, but source
+    // all address-bearing admin config from the host's primary admin interface.
+    // In multi-DPU FNN mode that primary can be a non-DPU host NIC; dpu-agent
+    // still disables the admin DHCP path on non-primary DPUs via is_primary_dpu.
+    let active_interface = snapshot
+        .host_snapshot
+        .interfaces
+        .iter()
+        .find(|interface| {
+            interface.primary_interface && admin_segment_ids.contains(&interface.segment_id)
+        })
+        .ok_or_else(|| {
+            CarbideError::InvalidArgument(format!(
+                "No primary admin interface found on host: {host_machine_id}"
+            ))
+        })?;
+
+    let admin_segment = admin_segments
+        .iter()
+        .find(|v| v.id == active_interface.segment_id);
 
     let Some(admin_segment) = admin_segment else {
         return Err(CarbideError::internal(format!(
-            "Unknown admin segment `{}` attached on host: {host_machine_id} with dpu: {dpu_machine_id}", interface.segment_id
+            "Unknown primary admin segment `{}` attached on host: {host_machine_id}",
+            active_interface.segment_id
         ))
         .into());
     };
@@ -267,15 +287,15 @@ pub async fn admin_network(
         None => "unknowndomain".to_string(),
     };
 
-    let address = interface
+    let address = active_interface
         .addresses
         .iter()
         .copied()
         .find(|address| address.is_ipv4())
         .ok_or_else(|| {
             CarbideError::InvalidArgument(format!(
-                "No IPv4 address found on host interface {} for dpu: {dpu_machine_id}",
-                interface.id
+                "No IPv4 address found on primary host admin interface {}",
+                active_interface.id
             ))
         })?;
 
@@ -370,7 +390,7 @@ pub async fn admin_network(
             vec![]
         },
         prefix: prefix.prefix.to_string(),
-        fqdn: format!("{}.{}", interface.hostname, domain),
+        fqdn: format!("{}.{}", active_interface.hostname, domain),
         booturl: booturl.clone(),
         svi_ip,
         tenant_vrf_loopback_ip,

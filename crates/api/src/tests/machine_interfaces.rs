@@ -20,17 +20,20 @@ use std::collections::HashSet;
 use std::str::FromStr;
 
 use common::api_fixtures::{
-    FIXTURE_DHCP_RELAY_ADDRESS, create_managed_host_with_config, create_test_env,
+    FIXTURE_DHCP_RELAY_ADDRESS, create_managed_host_multi_dpu, create_managed_host_with_config,
+    create_test_env,
 };
 use db::dhcp_entry::DhcpEntry;
 use db::{self};
 use itertools::Itertools;
 use mac_address::MacAddress;
 use model::address_selection_strategy::AddressSelectionStrategy;
+use model::allocation_type::AllocationType;
 use model::machine::MachineInterfaceSnapshot;
 use model::machine::machine_id::from_hardware_info;
 use model::machine_interface::InterfaceType;
 use model::machine_interface_address::MachineInterfaceAssociation;
+use model::network_segment::NetworkSegmentType;
 use rpc::forge::InterfaceSearchQuery;
 use rpc::forge::forge_server::Forge;
 use tokio::sync::broadcast;
@@ -136,6 +139,184 @@ async fn many_non_primary_interfaces_per_machine(
     txn.commit().await.unwrap();
 
     assert!(should_be_ok_interface.is_ok());
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn reconcile_admin_addresses_moves_dhcp_to_new_primary_and_is_idempotent(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let mh = create_managed_host_multi_dpu(&env, 2).await;
+    let mut txn = env.pool.begin().await?;
+
+    // Start with a reconciled multi-DPU host and flip the primary flag in
+    // the DB to simulate the persistence side of set-primary-dpu.
+    let mut interface_map = db::machine_interface::find_by_machine_ids(&mut txn, &[mh.id]).await?;
+    let interfaces = interface_map.remove(&mh.id).unwrap();
+    let primary = interfaces
+        .iter()
+        .find(|interface| {
+            interface.network_segment_type == Some(NetworkSegmentType::Admin)
+                && interface.attached_dpu_machine_id.is_some()
+                && interface.primary_interface
+        })
+        .cloned()
+        .unwrap();
+    let secondary = interfaces
+        .iter()
+        .find(|interface| {
+            interface.network_segment_type == Some(NetworkSegmentType::Admin)
+                && interface.attached_dpu_machine_id.is_some()
+                && !interface.primary_interface
+        })
+        .cloned()
+        .unwrap();
+    let active_address = primary.addresses[0];
+    db::machine_interface::set_primary_interface(&primary.id, false, &mut txn).await?;
+    db::machine_interface::set_primary_interface(&secondary.id, true, &mut txn).await?;
+
+    // Reconcile should move the existing DHCP address to the new primary
+    // rather than allocate a replacement from the same admin segment.
+    let active_config_changed =
+        db::machine_interface::reconcile_admin_addresses_for_host(&mut txn, &mh.id)
+            .await
+            .unwrap();
+    assert!(active_config_changed);
+
+    // Verify the new primary owns the preserved DHCP address and the old
+    // primary is addressless and DNS-silent.
+    let mut interface_map = db::machine_interface::find_by_machine_ids(&mut txn, &[mh.id]).await?;
+    let interfaces = interface_map.remove(&mh.id).unwrap();
+    let new_primary = interfaces
+        .iter()
+        .find(|interface| interface.id == secondary.id)
+        .unwrap();
+    let old_primary = interfaces
+        .iter()
+        .find(|interface| interface.id == primary.id)
+        .unwrap();
+    assert_eq!(new_primary.addresses, vec![active_address]);
+    assert!(old_primary.addresses.is_empty());
+    assert!(old_primary.domain_id.is_none());
+    assert!(old_primary.hostname.starts_with("noip-"));
+
+    let address_rows =
+        db::machine_interface_address::find_for_interface(&mut txn, new_primary.id).await?;
+    assert!(
+        address_rows
+            .iter()
+            .any(|address| address.address == active_address
+                && address.allocation_type == AllocationType::Dhcp)
+    );
+
+    // A second reconcile should be a no-op.
+    let active_config_changed =
+        db::machine_interface::reconcile_admin_addresses_for_host(&mut txn, &mh.id)
+            .await
+            .unwrap();
+    assert!(!active_config_changed);
+
+    txn.commit().await?;
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn reconcile_admin_addresses_allows_non_dpu_primary_admin_interface(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let mh = create_managed_host_multi_dpu(&env, 2).await;
+    let mut txn = env.pool.begin().await?;
+
+    let admin_segment = db::network_segment::admin(&mut txn)
+        .await?
+        .into_iter()
+        .next()
+        .unwrap();
+
+    let mut interface_map = db::machine_interface::find_by_machine_ids(&mut txn, &[mh.id]).await?;
+    let interfaces = interface_map.remove(&mh.id).unwrap();
+    for interface in interfaces
+        .iter()
+        .filter(|interface| interface.primary_interface)
+    {
+        db::machine_interface::set_primary_interface(&interface.id, false, &mut txn).await?;
+    }
+
+    let active_interface = db::machine_interface::create(
+        &mut txn,
+        std::slice::from_ref(&admin_segment),
+        &MacAddress::from_str("9a:9b:9c:9d:9e:a1")?,
+        true,
+        AddressSelectionStrategy::NextAvailableIp,
+    )
+    .await?;
+    db::machine_interface::associate_interface_with_machine(
+        &active_interface.id,
+        MachineInterfaceAssociation::Machine(mh.id),
+        &mut txn,
+    )
+    .await?;
+
+    let active_config_changed =
+        db::machine_interface::reconcile_admin_addresses_for_host(&mut txn, &mh.id).await?;
+    assert!(!active_config_changed);
+
+    let mut interface_map = db::machine_interface::find_by_machine_ids(&mut txn, &[mh.id]).await?;
+    let interfaces = interface_map.remove(&mh.id).unwrap();
+    let active_interface = interfaces
+        .iter()
+        .find(|interface| interface.id == active_interface.id)
+        .unwrap();
+    assert!(active_interface.primary_interface);
+    assert!(active_interface.attached_dpu_machine_id.is_none());
+    assert!(!active_interface.addresses.is_empty());
+
+    let dpu_admin_interfaces = interfaces
+        .iter()
+        .filter(|interface| {
+            interface.network_segment_type == Some(NetworkSegmentType::Admin)
+                && interface.attached_dpu_machine_id.is_some()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(dpu_admin_interfaces.len(), 2);
+    for interface in dpu_admin_interfaces {
+        assert!(!interface.primary_interface);
+        assert!(interface.addresses.is_empty());
+        assert!(interface.domain_id.is_none());
+        assert!(interface.hostname.starts_with("noip-"));
+    }
+
+    txn.commit().await?;
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn reconcile_admin_addresses_errors_without_any_primary_admin_interface(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let mh = create_managed_host_multi_dpu(&env, 2).await;
+    let mut txn = env.pool.begin().await?;
+
+    let mut interface_map = db::machine_interface::find_by_machine_ids(&mut txn, &[mh.id]).await?;
+    let interfaces = interface_map.remove(&mh.id).unwrap();
+    for interface in interfaces
+        .iter()
+        .filter(|interface| interface.primary_interface)
+    {
+        db::machine_interface::set_primary_interface(&interface.id, false, &mut txn).await?;
+    }
+
+    let result = db::machine_interface::reconcile_admin_addresses_for_host(&mut txn, &mh.id).await;
+    let error = result.expect_err("reconcile should reject hosts with no primary admin interface");
+    assert!(error.to_string().contains("no primary admin interface"));
+
+    txn.rollback().await?;
 
     Ok(())
 }

@@ -300,12 +300,35 @@ pub(crate) async fn discover_machine(
             )
             .await?;
 
-        // Create host machine with temporary ID if no machine is attached.
-        if machine_interface.machine_id.is_none() {
+        let host_machine_id = if let Some(host_machine_id) = machine_interface.machine_id {
+            host_machine_id
+        } else {
+            // Create host machine with temporary ID if no machine is attached.
             let predicted_machine_id =
                 host_id_from_dpu_hardware_info(&hardware_info).map_err(|e| {
                     CarbideError::InvalidArgument(format!("hardware info missing: {e}"))
                 })?;
+
+            let host_has_primary = db::machine_interface::find_by_machine_ids(
+                &mut txn,
+                std::slice::from_ref(&predicted_machine_id),
+            )
+            .await?
+            .get(&predicted_machine_id)
+            .is_some_and(|interfaces| {
+                interfaces
+                    .iter()
+                    .any(|interface| interface.primary_interface)
+            });
+            if host_has_primary && machine_interface.primary_interface {
+                db::machine_interface::set_primary_interface(
+                    &machine_interface.id,
+                    false,
+                    &mut txn,
+                )
+                .await?;
+            }
+
             let mi_id = machine_interface.id;
             let proactive_machine = db::machine::get_or_create(
                 &mut txn,
@@ -318,7 +341,7 @@ pub(crate) async fn discover_machine(
             // Update host and DPUs state correctly.
             db::machine::update_state(
                 &mut txn,
-                &predicted_machine_id,
+                &proactive_machine.id,
                 &ManagedHostState::DPUInit {
                     dpu_states: DpuInitStates {
                         states: HashMap::from([(machine_id, DpuInitState::Init)]),
@@ -332,6 +355,27 @@ pub(crate) async fn discover_machine(
                 machine_id = %proactive_machine.id,
                 "Created host machine proactively",
             );
+
+            proactive_machine.id
+        };
+
+        // Normalize admin address ownership any time DPU discovery creates
+        // or reattaches a DPU-backed host interface.
+        let active_config_changed =
+            db::machine_interface::reconcile_admin_addresses_for_host(&mut txn, &host_machine_id)
+                .await?;
+        if active_config_changed {
+            let (network_config, network_config_version) =
+                db::machine::get_network_config(&mut txn, &host_machine_id)
+                    .await?
+                    .take();
+            db::machine::try_update_network_config(
+                &mut txn,
+                &host_machine_id,
+                network_config_version,
+                &network_config,
+            )
+            .await?;
         }
     }
 

@@ -179,7 +179,19 @@ impl MachineCreator {
                 //
                 // If the DPU's machine is not attached to its machine interface, do so here.
                 // TODO (sp): is this defensive check really neccessary?
-                if self.configure_dpu_interface(&mut txn, dpu_report).await? {
+                let configured_dpu_interface =
+                    self.configure_dpu_interface(&mut txn, dpu_report).await?;
+                let reconciled_host = if let Some(host_machine) =
+                    db::machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine_id).await?
+                {
+                    self.reconcile_host_admin_addresses(&mut txn, &host_machine.id)
+                        .await?;
+                    true
+                } else {
+                    false
+                };
+
+                if configured_dpu_interface || reconciled_host {
                     txn.commit().await?;
                 }
                 return Ok(false);
@@ -227,6 +239,11 @@ impl MachineCreator {
                 tracing::info!(%rack_id, "Rack exists for host machine {host_machine_id}: {rack:#?}");
             }
         }
+
+        // Normalize host admin address ownership after all DPU-backed host
+        // interfaces have been attached and primary flags are final.
+        self.reconcile_host_admin_addresses(&mut txn, &host_machine_id)
+            .await?;
 
         txn.commit().await?;
 
@@ -667,6 +684,32 @@ impl MachineCreator {
             .await?;
 
         Ok(())
+    }
+
+    /// Reconciles host admin addresses and bumps visible host network config when needed.
+    ///
+    /// Returns whether the active admin config changed.
+    async fn reconcile_host_admin_addresses(
+        &self,
+        txn: &mut PgConnection,
+        host_machine_id: &MachineId,
+    ) -> SiteExplorerResult<bool> {
+        let active_config_changed =
+            db::machine_interface::reconcile_admin_addresses_for_host(txn, host_machine_id).await?;
+        if active_config_changed {
+            let (network_config, network_config_version) =
+                db::machine::get_network_config(&mut *txn, host_machine_id)
+                    .await?
+                    .take();
+            db::machine::try_update_network_config(
+                txn,
+                host_machine_id,
+                network_config_version,
+                &network_config,
+            )
+            .await?;
+        }
+        Ok(active_config_changed)
     }
 
     // configure_host_machine configures the host's machine with the specific interface. It returns the host's machine ID.
