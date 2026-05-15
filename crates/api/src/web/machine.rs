@@ -503,7 +503,6 @@ struct MachineIbInterfaceDisplay {
 #[derive(Debug, Default)]
 struct MachineNvLinkGpuDisplay {
     domain_uuid: String,
-    nmx_m_id: String,
     tray_index: i32,
     slot_id: i32,
     device_instance: i32,
@@ -626,7 +625,6 @@ impl From<forgerpc::Machine> for MachineDetail<'_> {
                 .into_iter()
                 .map(|gpu| MachineNvLinkGpuDisplay {
                     domain_uuid: nvlink_info.domain_uuid.unwrap_or_default().to_string(),
-                    nmx_m_id: gpu.nmx_m_id,
                     tray_index: gpu.tray_index,
                     slot_id: gpu.slot_id,
                     guid: gpu.guid,

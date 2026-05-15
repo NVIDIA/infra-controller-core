@@ -25,14 +25,14 @@ use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Counter, Histogram, Meter};
 use serde::Serialize;
 
-use crate::NmxmPartitionOperationType;
+use crate::NmxcPartitionOperationType;
 
 /// Metrics that are gathered in a single nvl partition monitor run
 #[derive(Clone, Debug)]
 pub struct NvlPartitionMonitorMetrics {
     /// Start time of metrics gathering
     pub recording_started_at: std::time::Instant,
-    pub nmxm: NmxmMetrics,
+    pub nmxc: NmxcMetrics,
     pub num_machines_scanned: usize,
     pub num_instances_scanned: usize,
     pub num_gpus_scanned: usize,
@@ -60,7 +60,6 @@ pub enum NmxmPartitionOperations {
     Remove,
     RemoveDefaultPartition,
     Update,
-    Pending,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -79,18 +78,18 @@ pub struct AppliedChange {
     pub status: NmxmPartitionOperationStatus,
 }
 
-/// Metrics collected for nmx-m data
+/// Metrics collected for NMX-C data
 #[derive(Clone, Debug, Default, Serialize)]
-pub struct NmxmMetrics {
-    /// The endpoint that we use to interact with nmx-m
+pub struct NmxcMetrics {
+    /// The endpoint that we use to interact with NMX-C
     pub endpoint: String,
     /// connection errors
     pub connect_error: String,
-    /// Version of nmxm
+    /// Version of NMX-C
     pub version: String,
-    /// Number of partitions visible at NMX-M
+    /// Number of partitions visible at NMX-C
     pub num_partitions: usize,
-    /// Number of gpus visible at NMX-M
+    /// Number of GPUs visible at NMX-C
     pub num_gpus: usize,
 }
 
@@ -110,7 +109,7 @@ impl NvlPartitionMonitorMetrics {
             applied_changes: HashMap::new(),
             operation_latencies: HashMap::new(),
             nvlink_config_apply_durations_ms: Vec::new(),
-            nmxm: NmxmMetrics {
+            nmxc: NmxcMetrics {
                 endpoint: String::new(),
                 connect_error: String::new(),
                 version: String::new(),
@@ -125,7 +124,7 @@ impl Display for NvlPartitionMonitorMetrics {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "{{ machines_scanned: {}, instances_scanned: {}, nvl_status_updates: {}, num_logical_partitions: {}, num_physical_partitions:{}, num_gpus_scanned: {}, nvlink_info_mismatches: {}, stale_partitions_deleted: {}, applied_changes: {}, nmxm_connect_err: {}, nmxm_num_partitions: {}, nmxm_num_gpus: {}, completed_operations: {}, duration: {} }}",
+            "{{ machines_scanned: {}, instances_scanned: {}, nvl_status_updates: {}, num_logical_partitions: {}, num_physical_partitions:{}, num_gpus_scanned: {}, nvlink_info_mismatches: {}, stale_partitions_deleted: {}, applied_changes: {}, nmxc_connect_err: {}, nmxc_num_partitions: {}, nmxc_num_gpus: {}, completed_operations: {}, duration: {} }}",
             self.num_machines_scanned,
             self.num_instances_scanned,
             self.num_machine_nvl_status_updates,
@@ -135,9 +134,9 @@ impl Display for NvlPartitionMonitorMetrics {
             self.num_nvlink_info_mismatches,
             self.num_stale_partitions_deleted,
             self.applied_changes.len(),
-            self.nmxm.connect_error,
-            self.nmxm.num_partitions,
-            self.nmxm.num_gpus,
+            self.nmxc.connect_error,
+            self.nmxc.num_partitions,
+            self.nmxc.num_gpus,
             self.num_completed_operations,
             self.recording_started_at.elapsed().as_millis(),
         )
@@ -147,7 +146,7 @@ impl Display for NvlPartitionMonitorMetrics {
 /// Instruments that are used by pub struct NvlPartitionMonitor
 pub struct NvlPartitionMonitorInstruments {
     pub iteration_latency: Histogram<f64>,
-    pub nmxm_changes_applied: Counter<u64>,
+    pub nmxc_changes_applied: Counter<u64>,
     pub operations_latency: Histogram<f64>,
     pub nvlink_config_apply_latency: Histogram<f64>,
 }
@@ -164,8 +163,8 @@ impl NvlPartitionMonitorInstruments {
             .build();
 
         let operations_latency = meter
-            .f64_histogram("carbide_nvlink_partition_monitor_nmxm_op_latency")
-            .with_description("Time consumed for one nmxm operations")
+            .f64_histogram("carbide_nvlink_partition_monitor_nmxc_op_latency")
+            .with_description("Time consumed for one NMX-C operation")
             .with_unit("ms")
             .build();
 
@@ -216,19 +215,19 @@ impl NvlPartitionMonitorInstruments {
                 .build();
         }
 
-        let nmxm_changes_applied = meter
-            .u64_counter("carbide_nvlink_partition_monitor_nmxm_changes_applied")
-            .with_description("Number of changes requested to Nmx-M")
+        let nmxc_changes_applied = meter
+            .u64_counter("carbide_nvlink_partition_monitor_nmxc_changes_applied")
+            .with_description("Number of changes requested to NMX-C")
             .build();
 
         {
             let metrics = shared_metrics.clone();
             meter
-                .u64_observable_gauge("carbide_nvlink_partition_monitor_nmxm_connect_error_count")
-                .with_description("The errors encountered while checking NMX-M")
+                .u64_observable_gauge("carbide_nvlink_partition_monitor_nmxc_connect_error_count")
+                .with_description("The errors encountered while checking NMX-C")
                 .with_callback(move |o| {
                     metrics.if_available(|metrics, attrs| {
-                        if !metrics.nmxm.connect_error.is_empty() {
+                        if !metrics.nmxc.connect_error.is_empty() {
                             o.observe(
                                 1,
                                 &[
@@ -236,7 +235,7 @@ impl NvlPartitionMonitorInstruments {
                                     &[KeyValue::new(
                                         "error",
                                         truncate_error_for_metric_label(
-                                            metrics.nmxm.connect_error.clone(),
+                                            metrics.nmxc.connect_error.clone(),
                                         ),
                                     )],
                                 ]
@@ -251,11 +250,11 @@ impl NvlPartitionMonitorInstruments {
         {
             let metrics = shared_metrics.clone();
             meter
-                .u64_observable_gauge("carbide_nvlink_partition_monitor_nmxm_partition_count")
-                .with_description("Number of partitions NMX-M is reporting")
+                .u64_observable_gauge("carbide_nvlink_partition_monitor_nmxc_partition_count")
+                .with_description("Number of partitions NMX-C is reporting")
                 .with_callback(move |o| {
                     metrics.if_available(|metrics, attrs| {
-                        o.observe(metrics.nmxm.num_partitions as u64, attrs);
+                        o.observe(metrics.nmxc.num_partitions as u64, attrs);
                     })
                 })
                 .build();
@@ -264,11 +263,11 @@ impl NvlPartitionMonitorInstruments {
         {
             let metrics = shared_metrics.clone();
             meter
-                .u64_observable_gauge("carbide_nvlink_partition_monitor_nmxm_gpu_count")
-                .with_description("Number of GPUs NMX-M is reporting")
+                .u64_observable_gauge("carbide_nvlink_partition_monitor_nmxc_gpu_count")
+                .with_description("Number of GPUs NMX-C is reporting")
                 .with_callback(move |o| {
                     metrics.if_available(|metrics, attrs| {
-                        o.observe(metrics.nmxm.num_partitions as u64, attrs);
+                        o.observe(metrics.nmxc.num_gpus as u64, attrs);
                     })
                 })
                 .build();
@@ -302,7 +301,7 @@ impl NvlPartitionMonitorInstruments {
 
         Self {
             iteration_latency,
-            nmxm_changes_applied,
+            nmxc_changes_applied,
             operations_latency,
             nvlink_config_apply_latency,
         }
@@ -315,7 +314,7 @@ impl NvlPartitionMonitorInstruments {
         );
 
         for (change, &count) in metrics.applied_changes.iter() {
-            self.nmxm_changes_applied.add(
+            self.nmxc_changes_applied.add(
                 count as u64,
                 &[
                     KeyValue::new("operation", change.operation),
@@ -344,7 +343,7 @@ impl NvlPartitionMonitorInstruments {
     fn init_counters_and_histograms(&self) {
         for status in [false, true] {
             for operation in NmxmPartitionOperations::values() {
-                self.nmxm_changes_applied.add(
+                self.nmxc_changes_applied.add(
                     0u64,
                     &[
                         KeyValue::new("operation", operation),
@@ -358,7 +357,13 @@ impl NvlPartitionMonitorInstruments {
 
 impl NmxmPartitionOperations {
     pub fn values() -> impl Iterator<Item = Self> {
-        [Self::Create, Self::Update, Self::Pending, Self::Remove].into_iter()
+        [
+            Self::Create,
+            Self::Update,
+            Self::Remove,
+            Self::RemoveDefaultPartition,
+        ]
+        .into_iter()
     }
 }
 
@@ -368,7 +373,6 @@ impl From<NmxmPartitionOperations> for opentelemetry::Value {
             NmxmPartitionOperations::Create => "create",
             NmxmPartitionOperations::Update => "update",
             NmxmPartitionOperations::Remove => "remove",
-            NmxmPartitionOperations::Pending => "pending",
             NmxmPartitionOperations::RemoveDefaultPartition => "remove_default_partition",
         };
 
@@ -376,16 +380,15 @@ impl From<NmxmPartitionOperations> for opentelemetry::Value {
     }
 }
 
-impl From<NmxmPartitionOperationType> for NmxmPartitionOperations {
-    fn from(value: NmxmPartitionOperationType) -> NmxmPartitionOperations {
+impl From<NmxcPartitionOperationType> for NmxmPartitionOperations {
+    fn from(value: NmxcPartitionOperationType) -> NmxmPartitionOperations {
         match value {
-            NmxmPartitionOperationType::Create => NmxmPartitionOperations::Create,
-            NmxmPartitionOperationType::Remove(_) => NmxmPartitionOperations::Remove,
-            NmxmPartitionOperationType::RemoveUnknownPartition(_) => {
+            NmxcPartitionOperationType::Create => NmxmPartitionOperations::Create,
+            NmxcPartitionOperationType::Remove(_) => NmxmPartitionOperations::Remove,
+            NmxcPartitionOperationType::RemoveUnknownPartition(_) => {
                 NmxmPartitionOperations::RemoveDefaultPartition
             }
-            NmxmPartitionOperationType::Update(_) => NmxmPartitionOperations::Update,
-            NmxmPartitionOperationType::Pending(_) => NmxmPartitionOperations::Pending,
+            NmxcPartitionOperationType::Update(_) => NmxmPartitionOperations::Update,
         }
     }
 }

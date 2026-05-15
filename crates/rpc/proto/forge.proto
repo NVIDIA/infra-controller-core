@@ -739,6 +739,12 @@ service Forge {
   // Trim DB Tables
   rpc TrimTable(TrimTableRequest) returns (TrimTableResponse);
 
+  // Chassis serial → NMX-C gRPC endpoint (nvlink_nmxc_endpoints table)
+  rpc ListNvlinkNmxcEndpoints(google.protobuf.Empty) returns (NvlinkNmxcEndpointList);
+  rpc CreateNvlinkNmxcEndpoint(NvlinkNmxcEndpoint) returns (NvlinkNmxcEndpoint);
+  rpc UpdateNvlinkNmxcEndpoint(NvlinkNmxcEndpoint) returns (NvlinkNmxcEndpoint);
+  rpc DeleteNvlinkNmxcEndpoint(DeleteNvlinkNmxcEndpointRequest) returns (google.protobuf.Empty);
+
   // begin DPU Remediation APIs
   // these apis are intended for consumption by the admin-cli to manage remediations and their status
   rpc CreateRemediation(CreateRemediationRequest) returns (CreateRemediationResponse);
@@ -902,7 +908,7 @@ service Forge {
   // Get position related information for machines
   rpc GetMachinePositionInfo(MachinePositionQuery) returns (MachinePositionInfoList);
 
-  rpc NmxmBrowse(NmxmBrowseRequest) returns (NmxmBrowseResponse);
+  rpc NmxcBrowse(NmxcBrowseRequest) returns (NmxcBrowseResponse);
 
   rpc ModifyDPFState(ModifyDPFStateRequest) returns (google.protobuf.Empty);
   rpc GetDPFState(GetDPFStateRequest) returns (DPFStateResponse);
@@ -7020,6 +7026,7 @@ message RackManagerForgeResponse {
 message MachineNVLinkInfo {
   common.NVLinkDomainId domain_uuid = 1;
   repeated NVLinkGpu gpus = 2;
+  string chassis_serial = 3;
 }
 
 message UpdateMachineNvLinkInfoRequest {
@@ -7028,7 +7035,8 @@ message UpdateMachineNvLinkInfoRequest {
 }
 
 message NVLinkGpu {
-  string nmx_m_id = 1;
+  reserved 1;
+  reserved "nmx_m_id";
   int32 tray_index = 2;
   int32 slot_id = 3;
   int32 device_id = 4;
@@ -7048,11 +7056,25 @@ message MachineNVLinkGpuStatusObservation {
   uint64 guid = 6;
 }
 
-message NmxmBrowseRequest {
-  string path = 1;
+enum NmxcBrowseOperation {
+  NMXC_BROWSE_OPERATION_UNSPECIFIED = 0;
+  NMXC_BROWSE_OPERATION_COMPUTE_NODE_INFO_LIST = 1;
+  NMXC_BROWSE_OPERATION_GPU_INFO = 2;
+  // Calls NMX-C GetGpuInfoList (all GPUs in the domain); response includes domain UUID from the RPC header.
+  NMXC_BROWSE_OPERATION_GPU_INFO_LIST = 3;
 }
 
-message NmxmBrowseResponse {
+message NmxcBrowseRequest {
+  reserved 1;
+  reserved "path";
+  // Chassis serial used to resolve the NMX-C gRPC endpoint URL from `nvlink_nmxc_endpoints`.
+  string chassis_serial = 2;
+  NmxcBrowseOperation operation = 3;
+  // Required when `operation` is `NMXC_BROWSE_OPERATION_GPU_INFO`; ignored for `NMXC_BROWSE_OPERATION_GPU_INFO_LIST`.
+  uint64 gpu_uid = 4;
+}
+
+message NmxcBrowseResponse {
   // Response body
   string body = 1;
   // Response status code
@@ -7224,6 +7246,19 @@ message TrimTableRequest{
 
 message TrimTableResponse{
   string total_deleted = 1;
+}
+
+message NvlinkNmxcEndpoint {
+  string chassis_serial = 1;
+  string endpoint = 2;
+}
+
+message NvlinkNmxcEndpointList {
+  repeated NvlinkNmxcEndpoint entries = 1;
+}
+
+message DeleteNvlinkNmxcEndpointRequest {
+  string chassis_serial = 1;
 }
 
 // begin DPU remediation models

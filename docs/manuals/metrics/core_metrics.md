@@ -86,7 +86,7 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_network_segments_time_in_state_seconds</td><td>histogram</td><td>The amount of time objects of type carbide_network_segments have spent in a certain state</td></tr>
 <tr><td>carbide_network_segments_total</td><td>gauge</td><td>The total number of carbide_network_segments in the system</td></tr>
 <tr><td>carbide_network_segments_with_state_handling_errors_per_state</td><td>gauge</td><td>The number of carbide_network_segments in the system with a given state that failed state handling</td></tr>
-<tr><td>carbide_nvlink_partition_monitor_nmxm_changes_applied_total</td><td>counter</td><td>Number of changes requested to Nmx-M</td></tr>
+<tr><td>carbide_nvlink_partition_monitor_nmxc_changes_applied_total</td><td>counter</td><td>Number of changes requested to NMX-C</td></tr>
 <tr><td>carbide_pending_dpu_nic_firmware_update_count</td><td>gauge</td><td>The number of machines in the system that need a firmware update.</td></tr>
 <tr><td>carbide_pending_host_firmware_update_count</td><td>gauge</td><td>The number of host machines in the system that need a firmware update.</td></tr>
 <tr><td>carbide_power_shelves_enqueuer_iteration_latency_milliseconds</td><td>histogram</td><td>The overall time it took to enqueue state handling tasks for all carbide_power_shelves in the system</td></tr>

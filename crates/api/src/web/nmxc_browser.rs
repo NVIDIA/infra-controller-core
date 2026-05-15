@@ -28,9 +28,11 @@ use super::Base;
 use crate::api::Api;
 
 #[derive(Template)]
-#[template(path = "nmxm_browser.html")]
-struct NmxmBrowser {
-    path: String,
+#[template(path = "nmxc_browser.html")]
+struct NmxcBrowser {
+    chassis_serial: String,
+    operation: String,
+    gpu_uid: String,
     response: String,
     error: String,
     status_code: u16,
@@ -45,39 +47,59 @@ struct Header {
 
 #[derive(Debug, Deserialize)]
 pub struct QueryParams {
-    path: Option<String>,
+    chassis_serial: Option<String>,
+    operation: Option<String>,
+    gpu_uid: Option<String>,
 }
 
-/// Queries the redfish endpoint in the query parameter
-/// and displays the result
+fn browse_operation_from_query(s: &str) -> i32 {
+    match s.trim() {
+        "compute_node_info_list" => rpc::forge::NmxcBrowseOperation::ComputeNodeInfoList as i32,
+        "gpu_info" => rpc::forge::NmxcBrowseOperation::GpuInfo as i32,
+        "gpu_info_list" => rpc::forge::NmxcBrowseOperation::GpuInfoList as i32,
+        _ => rpc::forge::NmxcBrowseOperation::Unspecified as i32,
+    }
+}
+
+/// Runs a selected NMX-C browse operation against the endpoint mapped for `chassis_serial`.
 pub async fn query(
     AxumState(state): AxumState<Arc<Api>>,
     AxumQuery(query): AxumQuery<QueryParams>,
 ) -> Response {
-    let mut browser = NmxmBrowser {
-        path: query.path.clone().unwrap_or_default(),
-        response: "".to_string(),
+    let mut browser = NmxcBrowser {
+        chassis_serial: query.chassis_serial.clone().unwrap_or_default(),
+        operation: query.operation.clone().unwrap_or_default(),
+        gpu_uid: query.gpu_uid.clone().unwrap_or_default(),
+        response: String::new(),
         response_headers: Vec::new(),
-        error: "".to_string(),
+        error: String::new(),
         status_code: 0,
-        status_string: "".to_string(),
+        status_string: String::new(),
     };
 
-    if browser.path.is_empty() {
-        // No query provided - Just show the form
+    let op = browse_operation_from_query(&browser.operation);
+    let gpu_uid = browser.gpu_uid.trim().parse::<u64>().unwrap_or(0);
+    let needs_gpu_uid = op == rpc::forge::NmxcBrowseOperation::GpuInfo as i32;
+    let can_query = !browser.chassis_serial.is_empty()
+        && op != rpc::forge::NmxcBrowseOperation::Unspecified as i32
+        && (!needs_gpu_uid || gpu_uid != 0);
+
+    if !can_query {
         return (StatusCode::OK, Html(browser.render().unwrap())).into_response();
-    };
+    }
 
     let response = match state
-        .nmxm_browse(tonic::Request::new(rpc::forge::NmxmBrowseRequest {
-            path: browser.path.clone(),
+        .nmxc_browse(tonic::Request::new(rpc::forge::NmxcBrowseRequest {
+            chassis_serial: browser.chassis_serial.clone(),
+            operation: op,
+            gpu_uid,
         }))
         .await
     {
         Ok(response) => response.into_inner(),
         Err(err) => {
             let message = format!(
-                "Failed to execute NMX-M query: Code: {}. Message: {}",
+                "Failed to execute NMX-C query: Code: {}. Message: {}",
                 err.code(),
                 err.message()
             );
@@ -99,4 +121,4 @@ pub async fn query(
     (StatusCode::OK, Html(browser.render().unwrap())).into_response()
 }
 
-impl super::Base for NmxmBrowser {}
+impl super::Base for NmxcBrowser {}

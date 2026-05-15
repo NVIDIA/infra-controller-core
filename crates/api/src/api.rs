@@ -31,7 +31,6 @@ use ::rpc::protos::dns::{
 };
 use ::rpc::protos::{measured_boot as measured_boot_pb, mlx_device as mlx_device_pb};
 use carbide_ib_fabric::ib::IBFabricManager;
-use carbide_nvlink_manager::nvlink::NmxmClientPool;
 use carbide_redfish::libredfish::RedfishClientPool;
 use carbide_site_explorer::EndpointExplorer;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
@@ -40,6 +39,7 @@ use db::work_lock_manager::WorkLockManagerHandle;
 use db::{DatabaseError, DatabaseResult, WithTransaction};
 use forge_secrets::certificates::CertificateProvider;
 use forge_secrets::credentials::CredentialManager;
+use libnmxc::NmxcPool;
 use librms::RmsApi;
 use model::machine::Machine;
 use model::machine::machine_search_config::MachineSearchConfig;
@@ -76,7 +76,7 @@ pub struct Api {
     pub(crate) scout_stream_registry: ConnectionRegistry,
     #[allow(unused)]
     pub(crate) rms_client: Option<Arc<dyn RmsApi>>,
-    pub(crate) nmxm_pool: Arc<dyn NmxmClientPool>,
+    pub(crate) nmxc_client_pool: Arc<dyn NmxcPool>,
     pub(crate) work_lock_manager_handle: WorkLockManagerHandle,
     pub(crate) dpf_sdk: Option<Arc<dyn DpfOperations>>,
     pub(crate) machine_state_handler_enqueuer: Enqueuer<MachineStateControllerIO>,
@@ -2684,11 +2684,11 @@ impl Forge for Api {
         crate::handlers::logical_partition::update(self, request).await
     }
 
-    async fn nmxm_browse(
+    async fn nmxc_browse(
         &self,
-        request: Request<rpc::NmxmBrowseRequest>,
-    ) -> Result<Response<rpc::NmxmBrowseResponse>, Status> {
-        crate::handlers::nvl_partition::nmxm_browse(self, request).await
+        request: Request<rpc::NmxcBrowseRequest>,
+    ) -> Result<Response<rpc::NmxcBrowseResponse>, Status> {
+        crate::handlers::nmxc_browse::nmxc_browse(self, request).await
     }
 
     // Return a Vector of all the DPA interface IDs
@@ -2793,6 +2793,34 @@ impl Forge for Api {
         request: Request<rpc::TrimTableRequest>,
     ) -> Result<Response<rpc::TrimTableResponse>, Status> {
         crate::handlers::db::trim_table(self, request).await
+    }
+
+    async fn list_nvlink_nmxc_endpoints(
+        &self,
+        request: Request<()>,
+    ) -> Result<Response<rpc::NvlinkNmxcEndpointList>, Status> {
+        crate::handlers::nvlink_nmxc_endpoints::list_nvlink_nmxc_endpoints(self, request).await
+    }
+
+    async fn create_nvlink_nmxc_endpoint(
+        &self,
+        request: Request<rpc::NvlinkNmxcEndpoint>,
+    ) -> Result<Response<rpc::NvlinkNmxcEndpoint>, Status> {
+        crate::handlers::nvlink_nmxc_endpoints::create_nvlink_nmxc_endpoint(self, request).await
+    }
+
+    async fn update_nvlink_nmxc_endpoint(
+        &self,
+        request: Request<rpc::NvlinkNmxcEndpoint>,
+    ) -> Result<Response<rpc::NvlinkNmxcEndpoint>, Status> {
+        crate::handlers::nvlink_nmxc_endpoints::update_nvlink_nmxc_endpoint(self, request).await
+    }
+
+    async fn delete_nvlink_nmxc_endpoint(
+        &self,
+        request: Request<rpc::DeleteNvlinkNmxcEndpointRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::nvlink_nmxc_endpoints::delete_nvlink_nmxc_endpoint(self, request).await
     }
 
     async fn create_remediation(

@@ -17,7 +17,7 @@
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -27,7 +27,6 @@ use carbide_ib_fabric::IbFabricMonitor;
 use carbide_ib_fabric::ib::{self, IBFabricManager};
 use carbide_ipmi::IPMITool;
 use carbide_nvlink_manager::NvlPartitionMonitor;
-use carbide_nvlink_manager::nvlink::{NmxmClientPool, NmxmClientPoolImpl};
 use carbide_preingestion_manager::PreingestionManager;
 use carbide_redfish::libredfish::RedfishClientPool;
 use carbide_redfish::nv_redfish::NvRedfishClientPool;
@@ -624,11 +623,14 @@ pub async fn start_api(
 
     let nvlink_config = carbide_config.nvlink_config.clone().unwrap_or_default();
 
-    let nmxm_client_pool =
-        libnmxm::NmxmClientPool::builder(nvlink_config.allow_insecure).build()?;
-    let nmxm_pool = NmxmClientPoolImpl::new(credential_manager.clone(), nmxm_client_pool);
-
-    let shared_nmxm_pool: Arc<dyn NmxmClientPool> = Arc::new(nmxm_pool);
+    let mut nmxc_builder = libnmxc::NmxcClientPool::builder();
+    if let Some(tls) = nmxc_tls_config_from_nvlink(&nvlink_config) {
+        nmxc_builder = nmxc_builder.tls(tls);
+    }
+    let nmxc_client_pool = nmxc_builder
+        .build()
+        .map_err(|e| eyre::eyre!("Failed to build NMX-C client pool: {e}"))?;
+    let shared_nmxc_pool: Arc<dyn libnmxc::NmxcPool> = Arc::new(nmxc_client_pool);
 
     // Create DPF SDK and initialize CRs if enabled
     // If we end up having static DPUDeployments, we could move the static CRs outside of the API.
@@ -724,7 +726,7 @@ pub async fn start_api(
         runtime_config: carbide_config.clone(),
         scout_stream_registry: ConnectionRegistry::new(),
         rms_client: rms_client.clone(),
-        nmxm_pool: shared_nmxm_pool,
+        nmxc_client_pool: shared_nmxc_pool.clone(),
         work_lock_manager_handle,
         dpf_sdk: dpf_sdk.clone(),
         machine_state_handler_enqueuer: Enqueuer::new(db_pool),
@@ -791,7 +793,6 @@ pub async fn initialize_and_start_controllers<'a>(
         database_connection: db_pool,
         ib_fabric_manager,
         redfish_pool: shared_redfish_pool,
-        nmxm_pool: shared_nmxm_pool,
         work_lock_manager_handle,
         rms_client,
         dpf_sdk,
@@ -1222,7 +1223,7 @@ pub async fn initialize_and_start_controllers<'a>(
 
     NvlPartitionMonitor::new(
         db_pool.clone(),
-        shared_nmxm_pool.clone(),
+        api_service.nmxc_client_pool.clone(),
         meter.clone(),
         carbide_config.nvlink_config.clone().unwrap_or_default(),
         carbide_config.host_health,
@@ -1287,6 +1288,27 @@ pub async fn initialize_and_start_controllers<'a>(
     .await?;
 
     Ok(())
+}
+
+fn nmxc_tls_config_from_nvlink(
+    cfg: &carbide_nvlink_manager::config::NvLinkConfig,
+) -> Option<libnmxc::NmxcTlsConfig> {
+    let ca = cfg.nmx_c_tls_ca_cert_path.as_ref().map(PathBuf::from);
+    let client_cert = cfg.nmx_c_tls_client_cert_path.as_ref().map(PathBuf::from);
+    let client_key = cfg.nmx_c_tls_client_key_path.as_ref().map(PathBuf::from);
+    if ca.is_none()
+        && client_cert.is_none()
+        && client_key.is_none()
+        && cfg.nmx_c_tls_authority.is_none()
+    {
+        return None;
+    }
+    Some(libnmxc::NmxcTlsConfig {
+        ca_cert_path: ca,
+        client_cert_path: client_cert,
+        client_key_path: client_key,
+        authority: cfg.nmx_c_tls_authority.clone(),
+    })
 }
 
 #[cfg(test)]

@@ -626,6 +626,7 @@ impl From<MachineNvLinkInfo> for rpc::forge::MachineNvLinkInfo {
                 .into_iter()
                 .map(rpc::forge::NvLinkGpu::from)
                 .collect(),
+            chassis_serial: value.chassis_serial,
         }
     }
 }
@@ -633,7 +634,6 @@ impl From<MachineNvLinkInfo> for rpc::forge::MachineNvLinkInfo {
 impl From<NvLinkGpu> for rpc::forge::NvLinkGpu {
     fn from(value: NvLinkGpu) -> Self {
         rpc::forge::NvLinkGpu {
-            nmx_m_id: value.nmx_m_id,
             tray_index: value.tray_index,
             slot_id: value.slot_id,
             device_id: value.device_id,
@@ -650,6 +650,7 @@ impl TryFrom<rpc::forge::MachineNvLinkInfo> for MachineNvLinkInfo {
             domain_uuid: value.domain_uuid.ok_or(
                 rpc::errors::RpcDataConversionError::MissingArgument("domain_uuid"),
             )?,
+            chassis_serial: value.chassis_serial,
             gpus: value.gpus.into_iter().map(NvLinkGpu::from).collect(),
         })
     }
@@ -658,7 +659,6 @@ impl TryFrom<rpc::forge::MachineNvLinkInfo> for MachineNvLinkInfo {
 impl From<rpc::forge::NvLinkGpu> for NvLinkGpu {
     fn from(value: rpc::forge::NvLinkGpu) -> Self {
         NvLinkGpu {
-            nmx_m_id: value.nmx_m_id,
             tray_index: value.tray_index,
             slot_id: value.slot_id,
             device_id: value.device_id,

@@ -21,10 +21,10 @@
         "board_version": "",
         "bios_version": "1.13.0",
         "bios_date": "01/01/1971",
-        "product_serial": "Host1234",
-        "board_serial": "HostBoard1234",
-        "chassis_serial": "HostChassis1234",
-        "product_name": "GB200 NVL",
+        "product_serial": "Host12345",
+        "board_serial": "HostBoard12345",
+        "chassis_serial": "HostChassis12345",
+        "product_name": "DGX GB200 Compute Tray",
         "sys_vendor": "Dell Inc."
     },
     "block_devices": [
@@ -243,12 +243,12 @@
             "frequency": "1755 MHz",
             "pci_bus_id": "00000000:17:00.0",
             "platform_info": {
-                "chassis_serial": "SN_WHATISTHIS1",
-                "slot_number": 0,
-                "tray_index": 0,
+                "chassis_serial": "27XYX27000001",
+                "slot_number": 1,
+                "tray_index": 1,
                 "host_id": 1,
                 "module_id": 1,
-                "fabric_guid": "0xdb488cb17978480"
+                "fabric_guid": "0x3e9"
             }
         },
         {
@@ -261,12 +261,12 @@
             "frequency": "1755 MHz",
             "pci_bus_id": "00000000:17:00.1",
             "platform_info": {
-                "chassis_serial": "SN_WHATISTHIS1",
-                "slot_number": 0,
-                "tray_index": 0,
+                "chassis_serial": "27XYX27000001",
+                "slot_number": 1,
+                "tray_index": 1,
                 "host_id": 1,
                 "module_id": 2,
-                "fabric_guid": "0xdb488cb17978481"
+                "fabric_guid": "0x3ea"
             }
         },
         {
@@ -279,12 +279,12 @@
             "frequency": "1755 MHz",
             "pci_bus_id": "00000000:17:00.2",
             "platform_info": {
-                "chassis_serial": "SN_WHATISTHIS1",
-                "slot_number": 0,
-                "tray_index": 0,
+                "chassis_serial": "27XYX27000001",
+                "slot_number": 1,
+                "tray_index": 1,
                 "host_id": 1,
                 "module_id": 3,
-                "fabric_guid": "0xdb488cb17978482"
+                "fabric_guid": "0x3eb"
             }
         },
         {
@@ -297,12 +297,12 @@
             "frequency": "1755 MHz",
             "pci_bus_id": "00000000:17:00.3",
             "platform_info": {
-                "chassis_serial": "SN_WHATISTHIS1",
-                "slot_number": 0,
-                "tray_index": 0,
+                "chassis_serial": "27XYX27000001",
+                "slot_number": 1,
+                "tray_index": 1,
                 "host_id": 1,
                 "module_id": 4,
-                "fabric_guid": "0xdb488cb17978483"
+                "fabric_guid": "0x3ec"
             }
         }
     ],

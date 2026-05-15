@@ -429,12 +429,13 @@ impl Display for MachineInventorySoftwareComponent {
 #[derive(Debug, Default, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct MachineNvLinkInfo {
     pub domain_uuid: NvLinkDomainId,
+    /// Chassis serial from the first GPU `GpuPlatformInfo` at discovery (or operator RPC).
+    pub chassis_serial: String,
     pub gpus: Vec<NvLinkGpu>,
 }
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct NvLinkGpu {
-    pub nmx_m_id: String,
     pub tray_index: i32,
     pub slot_id: i32,
     pub device_id: i32, // For GB200s, 1-based index of GPU in compute tray.
@@ -444,7 +445,6 @@ pub struct NvLinkGpu {
 impl From<libnmxm::nmxm_model::Gpu> for NvLinkGpu {
     fn from(gpu: libnmxm::nmxm_model::Gpu) -> Self {
         NvLinkGpu {
-            nmx_m_id: gpu.id.unwrap_or_default(),
             tray_index: gpu
                 .location_info
                 .as_ref()

@@ -242,6 +242,15 @@ pub enum CarbideError {
     AttestationError(String),
 }
 
+impl From<libnmxc::NmxcError> for CarbideError {
+    fn from(e: libnmxc::NmxcError) -> Self {
+        match e {
+            libnmxc::NmxcError::Status(s) => CarbideError::internal(s.to_string()),
+            other => CarbideError::internal(other.to_string()),
+        }
+    }
+}
+
 impl From<ModelError> for CarbideError {
     fn from(e: ModelError) -> Self {
         match e {

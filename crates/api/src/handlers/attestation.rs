@@ -482,7 +482,6 @@ fn from_component_integrity(
         completed_at: None,
     }
 }
-
 #[cfg(not(feature = "linux-build"))]
 pub(crate) async fn attest_quote(
     _api: &Api,
