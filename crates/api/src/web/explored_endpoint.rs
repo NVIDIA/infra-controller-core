@@ -32,6 +32,7 @@ use rpc::site_explorer::{
 };
 use serde::Deserialize;
 
+use super::pagination::{self, PageContext, PaginationParams};
 use super::{Base, filters};
 use crate::api::Api;
 use crate::web::action_status::{self, ActionStatus};
@@ -44,78 +45,76 @@ struct ExploredEndpointsShow {
     filter_name: &'static str,
     active_vendor_filter: String,
     is_errors_only: bool,
+    page: PageContext,
 }
 
 #[derive(Template)]
 #[template(path = "explored_endpoints_show_paired.html")]
 struct ExploredEndpointsShowPaired {
     managed_hosts: Vec<ExploredManagedHostDisplay>,
+    page: PageContext,
 }
 
-/// Create the managed host display
-impl From<SiteExplorationReport> for ExploredEndpointsShowPaired {
-    fn from(report: SiteExplorationReport) -> Self {
-        let mut managed_hosts = Vec::new();
-        for mh in report.managed_hosts {
-            let host = match report
-                .endpoints
-                .binary_search_by(|ep| ep.address.cmp(&mh.host_bmc_ip))
-            {
-                Ok(idx) => Some(&report.endpoints[idx]),
-                Err(_) => None,
-            };
-            let host = host.and_then(|h| h.report.as_ref());
+fn managed_hosts_from_report(report: &SiteExplorationReport) -> Vec<ExploredManagedHostDisplay> {
+    let mut managed_hosts = Vec::new();
+    for mh in &report.managed_hosts {
+        let host = match report
+            .endpoints
+            .binary_search_by(|ep| ep.address.cmp(&mh.host_bmc_ip))
+        {
+            Ok(idx) => Some(&report.endpoints[idx]),
+            Err(_) => None,
+        };
+        let host = host.and_then(|h| h.report.as_ref());
 
-            managed_hosts.push(ExploredManagedHostDisplay {
-                host_bmc_ip: mh.host_bmc_ip,
-                host_vendor: host
-                    .map(|report| report.vendor().to_string())
-                    .unwrap_or_default(),
-                host_serial_numbers: host
-                    .map(|report| {
-                        report
-                            .systems
-                            .iter()
-                            .filter_map(|sys| sys.serial_number.clone())
-                            .collect()
-                    })
-                    .unwrap_or_default(),
-                dpus: mh
-                    .dpus
-                    .iter()
-                    .map(|d| {
-                        let report = report
-                            .endpoints
-                            .iter()
-                            .find(|ep| ep.address == d.bmc_ip)
-                            .and_then(|dpu| dpu.report.as_ref());
-                        ExploredDpuDisplay {
-                            dpu_bmc_ip: d.bmc_ip.clone(),
-                            dpu_machine_id: report
-                                .map(|r| r.machine_id().to_string())
-                                .unwrap_or_default(),
-                            dpu_serial_numbers: report
-                                .map(|r| {
-                                    r.systems
-                                        .iter()
-                                        .filter_map(|sys| sys.serial_number.clone())
-                                        .collect()
-                                })
-                                .unwrap_or_default(),
-                            host_pf_mac: d.host_pf_mac_address.clone().unwrap_or_default(),
-                            dpu_oob_mac: report
-                                .and_then(|r| r.systems.first())
-                                .and_then(|sys| sys.ethernet_interfaces.first())
-                                .and_then(|iface| iface.mac_address.clone())
-                                .unwrap_or_default(),
-                        }
-                    })
-                    .collect(),
-            });
-        }
-
-        Self { managed_hosts }
+        managed_hosts.push(ExploredManagedHostDisplay {
+            host_bmc_ip: mh.host_bmc_ip.clone(),
+            host_vendor: host
+                .map(|report| report.vendor().to_string())
+                .unwrap_or_default(),
+            host_serial_numbers: host
+                .map(|report| {
+                    report
+                        .systems
+                        .iter()
+                        .filter_map(|sys| sys.serial_number.clone())
+                        .collect()
+                })
+                .unwrap_or_default(),
+            dpus: mh
+                .dpus
+                .iter()
+                .map(|d| {
+                    let report = report
+                        .endpoints
+                        .iter()
+                        .find(|ep| ep.address == d.bmc_ip)
+                        .and_then(|dpu| dpu.report.as_ref());
+                    ExploredDpuDisplay {
+                        dpu_bmc_ip: d.bmc_ip.clone(),
+                        dpu_machine_id: report
+                            .map(|r| r.machine_id().to_string())
+                            .unwrap_or_default(),
+                        dpu_serial_numbers: report
+                            .map(|r| {
+                                r.systems
+                                    .iter()
+                                    .filter_map(|sys| sys.serial_number.clone())
+                                    .collect()
+                            })
+                            .unwrap_or_default(),
+                        host_pf_mac: d.host_pf_mac_address.clone().unwrap_or_default(),
+                        dpu_oob_mac: report
+                            .and_then(|r| r.systems.first())
+                            .and_then(|sys| sys.ethernet_interfaces.first())
+                            .and_then(|iface| iface.mac_address.clone())
+                            .unwrap_or_default(),
+                    }
+                })
+                .collect(),
+        });
     }
+    managed_hosts
 }
 
 struct ExploredDpuDisplay {
@@ -209,7 +208,7 @@ impl From<&ExploredEndpoint> for ExploredEndpointDisplay {
 /// List explored endpoints
 pub async fn show_html_all(
     AxumState(state): AxumState<Arc<Api>>,
-    Query(params): Query<HashMap<String, String>>,
+    Query(mut params): Query<HashMap<String, String>>,
 ) -> Response {
     let report = match fetch_explored_endpoints(&state).await {
         Ok(report) => report,
@@ -223,8 +222,13 @@ pub async fn show_html_all(
         }
     };
 
+    let pagination_params = PaginationParams {
+        current_page: params.remove("current_page").and_then(|s| s.parse().ok()),
+        limit: params.remove("limit").and_then(|s| s.parse().ok()),
+    };
+
     let endpoints: Vec<ExploredEndpointDisplay> = report.endpoints.iter().map(Into::into).collect();
-    let vendors = vendors(&endpoints); // need vendors pre-filtering
+    let vendors = vendors(&endpoints);
     let vendor_filter = params
         .get("vendor-filter")
         .cloned()
@@ -233,37 +237,34 @@ pub async fn show_html_all(
         .get("errors-only")
         .and_then(|v| v.parse::<bool>().ok())
         .unwrap_or(false);
+
+    let mut extra_query_params = String::new();
+    if vendor_filter != "all" {
+        extra_query_params.push_str(&format!("&vendor-filter={vendor_filter}"));
+    }
+    if is_errors_only {
+        extra_query_params.push_str("&errors-only=true");
+    }
+
     let query_filter = query_filter_for(params);
+    let filtered: Vec<_> = endpoints.into_iter().filter(|x| query_filter(x)).collect();
+    let (info, endpoints) = pagination::paginate_vec(filtered, &pagination_params);
+
     let tmpl = ExploredEndpointsShow {
         filter_name: "All",
         vendors,
-        endpoints: endpoints.into_iter().filter(|x| query_filter(x)).collect(),
+        endpoints,
         active_vendor_filter: vendor_filter,
         is_errors_only,
+        page: PageContext::new(info, "/admin/explored-endpoint")
+            .with_extra_params(extra_query_params),
     };
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
-pub async fn show_html_paired(AxumState(state): AxumState<Arc<Api>>) -> Response {
-    let report = match fetch_explored_endpoints(&state).await {
-        Ok(report) => report,
-        Err(err) => {
-            tracing::error!(%err, "fetch_explored_endpoints");
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Error loading site exploration report",
-            )
-                .into_response();
-        }
-    };
-
-    let tmpl = ExploredEndpointsShowPaired::from(report);
-    (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
-}
-
-pub async fn show_html_unpaired(
+pub async fn show_html_paired(
     AxumState(state): AxumState<Arc<Api>>,
-    Query(params): Query<HashMap<String, String>>,
+    Query(params): Query<PaginationParams>,
 ) -> Response {
     let report = match fetch_explored_endpoints(&state).await {
         Ok(report) => report,
@@ -275,6 +276,37 @@ pub async fn show_html_unpaired(
             )
                 .into_response();
         }
+    };
+
+    let all_hosts = managed_hosts_from_report(&report);
+    let (info, managed_hosts) = pagination::paginate_vec(all_hosts, &params);
+
+    let tmpl = ExploredEndpointsShowPaired {
+        managed_hosts,
+        page: PageContext::new(info, "/admin/explored-endpoint/paired"),
+    };
+    (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
+}
+
+pub async fn show_html_unpaired(
+    AxumState(state): AxumState<Arc<Api>>,
+    Query(mut params): Query<HashMap<String, String>>,
+) -> Response {
+    let report = match fetch_explored_endpoints(&state).await {
+        Ok(report) => report,
+        Err(err) => {
+            tracing::error!(%err, "fetch_explored_endpoints");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Error loading site exploration report",
+            )
+                .into_response();
+        }
+    };
+
+    let pagination_params = PaginationParams {
+        current_page: params.remove("current_page").and_then(|s| s.parse().ok()),
+        limit: params.remove("limit").and_then(|s| s.parse().ok()),
     };
 
     let paired_bmcs: HashSet<&str> = report
@@ -314,7 +346,7 @@ pub async fn show_html_unpaired(
         .filter(|ep| !legacy_paired_bmcs.contains(ep.address.as_str()))
         .collect();
 
-    let vendors = vendors(&endpoints); // need vendors pre-filtering
+    let vendors = vendors(&endpoints);
 
     let vendor_filter = params
         .get("vendor-filter")
@@ -324,13 +356,27 @@ pub async fn show_html_unpaired(
         .get("errors-only")
         .and_then(|v| v.parse::<bool>().ok())
         .unwrap_or(false);
+
+    let mut extra_query_params = String::new();
+    if vendor_filter != "all" {
+        extra_query_params.push_str(&format!("&vendor-filter={vendor_filter}"));
+    }
+    if is_errors_only {
+        extra_query_params.push_str("&errors-only=true");
+    }
+
     let query_filter = query_filter_for(params);
+    let filtered: Vec<_> = endpoints.into_iter().filter(|x| query_filter(x)).collect();
+    let (info, endpoints) = pagination::paginate_vec(filtered, &pagination_params);
+
     let tmpl = ExploredEndpointsShow {
         filter_name: "Unpaired",
         vendors,
-        endpoints: endpoints.into_iter().filter(|x| query_filter(x)).collect(),
+        endpoints,
         active_vendor_filter: vendor_filter,
         is_errors_only,
+        page: PageContext::new(info, "/admin/explored-endpoint/unpaired")
+            .with_extra_params(extra_query_params),
     };
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }

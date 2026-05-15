@@ -3,7 +3,7 @@
 {% block title %}Machine Validation Tests{% endblock %}
 
 {% block content %}
-<h1>Machine Validation External Config</h1>
+<h1>Machine Validation External Config ({{ page.total_items() }})</h1>
 <table class="sortable overview">
     <thead>
         <tr>
@@ -24,5 +24,7 @@
         {% endfor %}
     </tbody>
 </table>
+
+{% include "pages_footer.html" %}
 
 {% endblock %}

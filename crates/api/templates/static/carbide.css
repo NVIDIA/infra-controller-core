@@ -1631,4 +1631,103 @@ select.disabled {
     font-size: 0.85rem;
     white-space: nowrap;
   }
-} 
+
+  .pagination-footer {
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 1rem;
+  }
+}
+
+/* Pagination footer */
+.pagination-footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin: 2rem 0;
+  padding: 1rem 1.5rem;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-secondary);
+}
+
+.pagination-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.pagination-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.page-status {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-right: 0.5rem;
+}
+
+.page-size-label {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+a.page-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2rem;
+  padding: 0.35rem 0.65rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-decoration: none;
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-primary);
+  transition: all 0.15s ease;
+}
+
+a.page-link:hover {
+  background-color: var(--accent-green-light);
+  border-color: var(--accent-green);
+  color: var(--accent-green-hover);
+  text-decoration: none;
+}
+
+span.page-link.active {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2rem;
+  padding: 0.35rem 0.65rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: white;
+  background-color: var(--accent-green);
+  border: 1px solid var(--accent-green);
+}
+
+span.page-link.disabled {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2rem;
+  padding: 0.35rem 0.65rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  opacity: 0.5;
+  cursor: default;
+}

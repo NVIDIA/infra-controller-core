@@ -19,11 +19,12 @@ use std::sync::Arc;
 
 use askama::Template;
 use axum::Json;
-use axum::extract::State as AxumState;
+use axum::extract::{Query, State as AxumState};
 use axum::response::{Html, IntoResponse};
 use hyper::http::StatusCode;
 use rpc::forge as forgerpc;
 
+use super::pagination::{self, PageContext, PaginationParams};
 use super::{Base, filters};
 use crate::api::Api;
 use crate::web::machine;
@@ -32,6 +33,7 @@ use crate::web::machine;
 #[template(path = "dpu_versions.html")]
 struct DpuVersions {
     machines: Vec<Row>,
+    page: PageContext,
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, serde::Serialize)]
@@ -119,7 +121,10 @@ async fn fetch_dpus(api: &Arc<Api>) -> Result<Vec<Row>, tonic::Status> {
     Ok(machines)
 }
 
-pub async fn list_html(AxumState(state): AxumState<Arc<Api>>) -> impl IntoResponse {
+pub async fn list_html(
+    AxumState(state): AxumState<Arc<Api>>,
+    Query(params): Query<PaginationParams>,
+) -> impl IntoResponse {
     let machines = match fetch_dpus(&state).await {
         Ok(m) => m,
         Err(err) => {
@@ -128,7 +133,12 @@ pub async fn list_html(AxumState(state): AxumState<Arc<Api>>) -> impl IntoRespon
         }
     };
 
-    let tmpl = DpuVersions { machines };
+    let (info, machines) = pagination::paginate_vec(machines, &params);
+
+    let tmpl = DpuVersions {
+        machines,
+        page: PageContext::new(info, "/admin/dpu-versions"),
+    };
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
@@ -140,7 +150,6 @@ pub async fn list_json(AxumState(state): AxumState<Arc<Api>>) -> impl IntoRespon
             return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading DPUs").into_response();
         }
     };
-
     (StatusCode::OK, Json(machines)).into_response()
 }
 

@@ -9,9 +9,9 @@
 {% else if grouped_hosts.is_some() %}
 	<h1>Grouped Managed Hosts</h1>
 {% else if is_filtered %}
-	<h1>Filtered Managed Hosts</h1>
+	<h1>Filtered Managed Hosts ({{ page.total_items() }})</h1>
 {% else %}
-	<h1>All Managed Hosts</h1>
+	<h1>All Managed Hosts ({{ page.total_items() }})</h1>
 {% endif %}
 
 <details {% if is_filtered || grouped_hosts.is_some() %}open{% endif %}>
@@ -152,6 +152,7 @@
 
 {% if grouped_hosts.is_none() %}
 	{% include "managed_host_individual_table.html" %}
+	{% include "pages_footer.html" %}
 {% else %}
 	{% include "managed_host_grouped_table.html" %}
 {% endif %}

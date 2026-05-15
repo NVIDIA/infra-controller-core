@@ -49,43 +49,27 @@
 {% endmacro %}
 
 {% block content %}
-<div id="json" {% if active_tab != "all" %}style="display:none;"{% endif %}>
+{% if active_tab == "all" %}
+<div id="json">
 	<a href="/admin/expected-machine-definition.json">JSON</a>
 </div>
-<h1>Expected Machines</h1>
+{% endif %}
+<h1>Expected Machines ({{ page.total_items() }})</h1>
 
 <!-- Tab Navigation -->
 <div class="tab-nav">
-	<button class="tab-button {% if active_tab == "all" %}active{% endif %}" data-tab="all" title="All expected machines">All ({{ all_count }})</button>
-	<button class="tab-button {% if active_tab == "completed" %}active{% endif %}" data-tab="completed" title="Success">Completed ({{ completed_count }})</button>
-	<button class="tab-button {% if active_tab == "unseen" %}active{% endif %}" data-tab="unseen" title="Has not sent DHCP">Unseen ({{ unseen_count }})</button>
-	<button class="tab-button {% if active_tab == "unexplored" %}active{% endif %}" data-tab="unexplored" title="Not Redfish explored yet">Unexplored ({{ unexplored_count }})</button>
-	<button class="tab-button {% if active_tab == "unlinked" %}active{% endif %}" data-tab="unlinked" title="Not paired with managed host yet">Unlinked ({{ unlinked_count }})</button>
-	<button class="tab-button {% if active_tab == "unexpected" %}active{% endif %}" data-tab="unexpected" title="Explored BMCs not listed in expected_machines">Unexpected ({{ unexpected_count }})</button>
+	<a class="tab-button {% if active_tab == "all" %}active{% endif %}" href="/admin/expected-machine?tab=all" title="All expected machines">All ({{ all_count }})</a>
+	<a class="tab-button {% if active_tab == "completed" %}active{% endif %}" href="/admin/expected-machine?tab=completed" title="Success">Completed ({{ completed_count }})</a>
+	<a class="tab-button {% if active_tab == "unseen" %}active{% endif %}" href="/admin/expected-machine?tab=unseen" title="Has not sent DHCP">Unseen ({{ unseen_count }})</a>
+	<a class="tab-button {% if active_tab == "unexplored" %}active{% endif %}" href="/admin/expected-machine?tab=unexplored" title="Not Redfish explored yet">Unexplored ({{ unexplored_count }})</a>
+	<a class="tab-button {% if active_tab == "unlinked" %}active{% endif %}" href="/admin/expected-machine?tab=unlinked" title="Not paired with managed host yet">Unlinked ({{ unlinked_count }})</a>
+	<a class="tab-button {% if active_tab == "unexpected" %}active{% endif %}" href="/admin/expected-machine?tab=unexpected" title="Explored BMCs not listed in expected_machines">Unexpected ({{ unexpected_count }})</a>
 	<div class="tab-indicator"></div>
 </div>
 
-<div class="tab-content {% if active_tab == "all" %}active{% endif %}" id="tab-all">
-	{% call expected_machines_table(all_machines) %}{% endcall %}
-</div>
-
-<div class="tab-content {% if active_tab == "completed" %}active{% endif %}" id="tab-completed">
-	{% call expected_machines_table(completed_machines) %}{% endcall %}
-</div>
-
-<div class="tab-content {% if active_tab == "unseen" %}active{% endif %}" id="tab-unseen">
-	{% call expected_machines_table(unseen_machines) %}{% endcall %}
-</div>
-
-<div class="tab-content {% if active_tab == "unexplored" %}active{% endif %}" id="tab-unexplored">
-	{% call expected_machines_table(unexplored_machines) %}{% endcall %}
-</div>
-
-<div class="tab-content {% if active_tab == "unlinked" %}active{% endif %}" id="tab-unlinked">
-	{% call expected_machines_table(unlinked_machines) %}{% endcall %}
-</div>
-
-<div class="tab-content {% if active_tab == "unexpected" %}active{% endif %}" id="tab-unexpected">
+{% if active_tab != "unexpected" %}
+	{% call expected_machines_table(expected_rows) %}{% endcall %}
+{% else %}
 	<table class="sortable overview">
 		<thead>
 			<tr>
@@ -95,7 +79,7 @@
 			</tr>
 		</thead>
 		<tbody>
-			{% for ep in unexpected_machines %}
+			{% for ep in unexpected_rows %}
 			<tr>
 				<td>{{ ep.bmc_mac }}</td>
 				<td><a href="/admin/explored-endpoint/{{ ep.address }}">{{ ep.address }}</a></td>
@@ -109,36 +93,14 @@
 		</tbody>
 		<tfoot>
 			<tr>
-				<th>{{ unexpected_machines.len() }} item{% if unexpected_machines.len() != 1 %}s{% endif %}</th>
+				<th>{{ unexpected_rows.len() }} item{% if unexpected_rows.len() != 1 %}s{% endif %}</th>
 				<th></th>
 				<th></th>
 			</tr>
 		</tfoot>
 	</table>
-</div>
+{% endif %}
+
+{% include "pages_footer.html" %}
 
 {% endblock %}
-
-{% block script %}
-document.addEventListener('DOMContentLoaded', function() {
-	const jsonContainer = document.getElementById('json');
-	const tabNav = document.querySelector('.tab-nav');
-	if (!jsonContainer || !tabNav) return;
-
-	function syncJsonVisibility(tab) {
-		jsonContainer.style.display = tab === 'all' ? '' : 'none';
-	}
-
-	const initialButton = tabNav.querySelector('.tab-button.active');
-	if (initialButton) {
-		syncJsonVisibility(initialButton.getAttribute('data-tab'));
-	}
-
-	tabNav.addEventListener('click', function(e) {
-		const button = e.target.closest('.tab-button');
-		if (!button || !tabNav.contains(button)) return;
-		syncJsonVisibility(button.getAttribute('data-tab'));
-	});
-});
-{% endblock %}
-

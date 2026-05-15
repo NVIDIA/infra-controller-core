@@ -16,8 +16,6 @@
  */
 
 use std::cmp::min;
-use std::fmt;
-use std::str::FromStr;
 use std::sync::Arc;
 
 use askama::Template;
@@ -27,8 +25,9 @@ use axum::response::{Html, IntoResponse, Redirect, Response};
 use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc};
-use serde::{Deserialize, Deserializer, de};
+use serde::Deserialize;
 
+use super::pagination::{PageContext, empty_string_as_none};
 use super::{Base, filters};
 use crate::api::Api;
 
@@ -37,15 +36,8 @@ const DEFAULT_PAGE_RECORD_LIMIT: usize = 100;
 #[derive(Template)]
 #[template(path = "network_security_group_show.html")]
 struct NetworkSecurityGroupShow {
-    path: String,
     network_security_groups: Vec<NetworkSecurityGroupRowDisplay>,
-    current_page: usize,
-    previous: usize,
-    next: usize,
-    pages: usize,
-    page_range_start: usize,
-    page_range_end: usize,
-    limit: usize,
+    page: PageContext,
 }
 
 #[derive(PartialEq, Eq)]
@@ -112,20 +104,6 @@ struct NetworkSecurityGroupDetailDisplay {
     propagation: Vec<NetworkSecurityGroupPropagation>,
 }
 
-/// Serde deserialization decorator to map empty Strings to None,
-fn empty_string_as_none<'de, D, T>(de: D) -> Result<Option<T>, D::Error>
-where
-    D: Deserializer<'de>,
-    T: FromStr,
-    T::Err: fmt::Display,
-{
-    let opt = Option::<String>::deserialize(de)?;
-    match opt.as_deref() {
-        None | Some("") => Ok(None),
-        Some(s) => FromStr::from_str(s).map_err(de::Error::custom).map(Some),
-    }
-}
-
 /// Struct for deserializing a request to view
 /// existing NSGs
 #[derive(Deserialize, Debug)]
@@ -162,15 +140,8 @@ pub async fn show(
         };
 
     let tmpl = NetworkSecurityGroupShow {
-        path: path.path().to_string(),
         network_security_groups,
-        current_page,
-        previous: current_page.saturating_sub(1),
-        next: current_page.saturating_add(1),
-        pages,
-        page_range_start: current_page.saturating_sub(3),
-        page_range_end: min(current_page.saturating_add(4), pages),
-        limit,
+        page: PageContext::from_page_count(current_page, limit, pages, path.path()),
     };
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }

@@ -256,6 +256,7 @@ mod network_status;
 mod nmxm_browser;
 mod nvlink;
 mod operating_system;
+pub(crate) mod pagination;
 mod power_shelf;
 mod rack;
 mod redfish_actions;
