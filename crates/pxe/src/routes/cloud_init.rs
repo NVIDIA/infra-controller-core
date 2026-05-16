@@ -90,14 +90,14 @@ fn user_data_handler(
     context.insert("mac_address".to_string(), machine_interface.mac_address);
 
     if let Some(domain_oneof) = domain.domain {
-        match domain_oneof {
-            forge::pxe_domain::Domain::LegacyDomain(domain) => {
-                context.insert("hostname".to_string(), domain.name);
-            }
-            forge::pxe_domain::Domain::NewDomain(domain) => {
-                context.insert("hostname".to_string(), domain.name);
-            }
-        }
+        let domain_name = match domain_oneof {
+            forge::pxe_domain::Domain::LegacyDomain(domain) => domain.name,
+            forge::pxe_domain::Domain::NewDomain(domain) => domain.name,
+        };
+        context.insert(
+            "hostname".to_string(),
+            format!("{}.{}", machine_interface.hostname, domain_name),
+        );
     }
     context.insert("interface_id".to_string(), machine_interface_id.to_string());
     // Use URL overrides for external clients (static-assignments segment),
@@ -302,9 +302,33 @@ pub fn get_router(path_prefix: &str) -> Router<AppState> {
 mod tests {
     use std::fs;
 
+    use metrics_exporter_prometheus::PrometheusBuilder;
+    use tera::Tera;
+
     use super::*;
+    use crate::config::RuntimeConfig;
 
     const TEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../pxe/test_data");
+
+    fn test_app_state() -> AppState {
+        AppState {
+            engine: axum_template::engine::Engine::from(Tera::default()),
+            runtime_config: RuntimeConfig {
+                internal_api_url: "https://carbide-api.forge-system.svc.cluster.local:1079"
+                    .to_string(),
+                client_facing_api_url: "https://carbide-api.forge".to_string(),
+                pxe_url: "http://carbide-pxe.forge".to_string(),
+                static_pxe_url: "http://carbide-pxe.forge".to_string(),
+                forge_root_ca_path: String::new(),
+                server_cert_path: String::new(),
+                server_key_path: String::new(),
+                bind_address: "0.0.0.0".to_string(),
+                bind_port: 8080,
+                template_directory: String::new(),
+            },
+            prometheus_handle: PrometheusBuilder::new().build_recorder().handle(),
+        }
+    }
 
     #[test]
     fn forge_agent_config() {
@@ -432,5 +456,88 @@ mod tests {
         assert!(rendered.contains("--physdev-in pf0vf1_if"));
         assert!(rendered.contains("--physdev-in pf0vf2_if"));
         assert!(!rendered.contains("--physdev-in pf0vf3_if"));
+    }
+
+    #[test]
+    fn user_data_handler_sets_fqdn_hostname() {
+        let interface_id: MachineInterfaceId =
+            "91609f10-c91d-470d-a260-6293ea0c1234".parse().unwrap();
+        let machine_interface = forge::MachineInterface {
+            id: Some(interface_id),
+            hostname: "node-01".to_string(),
+            mac_address: "aa:bb:cc:dd:ee:ff".to_string(),
+            ..Default::default()
+        };
+        let domain = PxeDomain {
+            domain: Some(forge::pxe_domain::Domain::LegacyDomain(forge::Domain {
+                name: "forge.example.com".to_string(),
+                ..Default::default()
+            })),
+        };
+        let state = State(test_app_state());
+
+        let (template_key, context) = user_data_handler(
+            interface_id,
+            machine_interface,
+            domain,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            state,
+        );
+
+        assert_eq!(template_key, "user-data");
+        assert_eq!(
+            context.get("hostname").map(String::as_str),
+            Some("node-01.forge.example.com"),
+        );
+    }
+
+    #[test]
+    fn user_data_handler_sets_fqdn_hostname_with_new_domain() {
+        let interface_id: MachineInterfaceId =
+            "91609f10-c91d-470d-a260-6293ea0c1234".parse().unwrap();
+        let machine_interface = forge::MachineInterface {
+            id: Some(interface_id),
+            hostname: "node-02".to_string(),
+            mac_address: "aa:bb:cc:dd:ee:ff".to_string(),
+            ..Default::default()
+        };
+        let domain = PxeDomain {
+            domain: Some(forge::pxe_domain::Domain::NewDomain(rpc::dns::Domain {
+                name: "new.forge.example.com".to_string(),
+                ..Default::default()
+            })),
+        };
+        let state = State(test_app_state());
+
+        let (_template_key, context) = user_data_handler(
+            interface_id,
+            machine_interface,
+            domain,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            state,
+        );
+
+        assert_eq!(
+            context.get("hostname").map(String::as_str),
+            Some("node-02.new.forge.example.com"),
+        );
     }
 }
