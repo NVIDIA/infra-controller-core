@@ -413,28 +413,28 @@ kubectl run -i --rm --restart=Never --image=curlimages/curl curl-test \
   -H "Authorization: Bearer $TOKEN"
 ```
 
-### Set up carbidecli and Create your First Site
+### Set up nicocli and Create your First Site
 
 NICo has two CLIs that serve different purposes:
 
 | CLI | Communicates with | Used for |
 |---|---|---|
-| `carbidecli` | NICo REST (REST API) | Site management, org bootstrap, instance operations |
+| `nicocli` | NICo REST (REST API) | Site management, org bootstrap, instance operations |
 | `carbide-admin-cli` | NICo Core (gRPC API) | Host ingestion, credentials, expected machines, TPM approval |
 
-`carbidecli` is built from the NCX REST repo. `carbide-admin-cli` is built from the NCX Core repo (`crates/admin-cli`).
+`nicocli` is built from the NCX REST repo. `carbide-admin-cli` is built from the NCX Core repo (`crates/admin-cli`).
 
 #### 1. Build and Install the CLI
 
 ```bash
 cd "$NCX_REPO"
-make carbide-cli        # installs to $(go env GOPATH)/bin/carbidecli
+make nico-cli           # installs to $(go env GOPATH)/bin/nicocli
 ```
 
 #### 2. Generate the Default Config File
 
 ```bash
-carbidecli init          # writes ~/.carbide/config.yaml
+nicocli init             # writes ~/.nico/config.yaml
 ```
 
 #### 3. Port-forward `carbide-rest-api` to localhost
@@ -443,7 +443,7 @@ carbidecli init          # writes ~/.carbide/config.yaml
 kubectl port-forward -n carbide-rest svc/carbide-rest-api 8388:8388
 ```
 
-#### 4. Edit `~/.carbide/config.yaml`
+#### 4. Edit `~/.nico/config.yaml`
 
 ```yaml
 api:
@@ -476,8 +476,8 @@ curl -sS -H "Authorization: Bearer $TOKEN" \
 #### 6. Create your First Site
 
 ```bash
-carbidecli site create --name mysite --description 'first site'
-carbidecli site list
+nicocli site create --name mysite --description 'first site'
+nicocli site list
 ```
 
 ### Overall Health Check
