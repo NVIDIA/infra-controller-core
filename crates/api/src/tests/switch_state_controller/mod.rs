@@ -18,8 +18,12 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use carbide_uuid::switch::SwitchId;
 use db::switch as db_switch;
-use forge_secrets::credentials::TestCredentialManager;
+use forge_secrets::credentials::{
+    CredentialKey, CredentialReader, CredentialWriter, Credentials, TestCredentialManager,
+};
+use librms::protos::rack_manager as rms;
 use model::switch::{ConfiguringState, SwitchControllerState};
 use rpc::forge::forge_server::Forge;
 use tokio_util::sync::CancellationToken;
@@ -34,6 +38,64 @@ use crate::tests::common::api_fixtures::create_test_env;
 
 mod fixtures;
 use fixtures::switch::{mark_switch_as_deleted, set_switch_controller_state};
+
+fn switch_password_response(
+    switch_id: &SwitchId,
+    status: rms::ReturnCode,
+    error_message: &str,
+) -> rms::UpdateSwitchSystemPasswordResponse {
+    let success = status == rms::ReturnCode::Success;
+    rms::UpdateSwitchSystemPasswordResponse {
+        response: Some(rms::NodeBatchResponse {
+            status: status as i32,
+            message: if success {
+                "Updated switch system password on 1 of 1 devices".to_string()
+            } else {
+                "Updated switch system password on 0 of 1 devices".to_string()
+            },
+            total_nodes: 1,
+            successful_nodes: i32::from(success),
+            failed_nodes: i32::from(!success),
+            node_results: vec![rms::NodeResult {
+                node_id: switch_id.to_string(),
+                status: status as i32,
+                error_message: error_message.to_string(),
+            }],
+            ..Default::default()
+        }),
+    }
+}
+
+async fn create_configuring_switch_with_nvos_password(
+    env: &common::api_fixtures::TestEnv,
+    pool: &sqlx::PgPool,
+) -> Result<(SwitchId, mac_address::MacAddress), Box<dyn std::error::Error>> {
+    let switch_id = common::api_fixtures::site_explorer::new_switch(
+        env,
+        Some("Switch4".to_string()),
+        Some("Data Center A, Rack 1".to_string()),
+    )
+    .await?;
+
+    let mut txn = pool.begin().await?;
+    let switch = db_switch::find_by_id(txn.as_mut(), &switch_id)
+        .await?
+        .expect("switch should exist");
+    let bmc_mac_address = switch
+        .bmc_mac_address
+        .expect("test switch should have a BMC MAC address");
+    set_switch_controller_state(
+        txn.as_mut(),
+        &switch_id,
+        SwitchControllerState::Configuring {
+            config_state: ConfiguringState::RotateOsPassword,
+        },
+    )
+    .await?;
+    txn.commit().await?;
+
+    Ok((switch_id, bmc_mac_address))
+}
 
 #[crate::sqlx_test]
 async fn test_switch_state_transition_validation(
@@ -83,6 +145,191 @@ async fn test_switch_state_transition_validation(
             matches!(switch.controller_state.value, _ if switch.controller_state.value == state)
         );
     }
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_switch_rotate_os_password_calls_rms_and_persists_admin_credentials(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+    let (switch_id, bmc_mac_address) =
+        create_configuring_switch_with_nvos_password(&env, &pool).await?;
+    let credential_key = CredentialKey::SwitchNvosAdmin { bmc_mac_address };
+
+    env.test_credential_manager
+        .set_credentials(
+            &credential_key,
+            &Credentials::UsernamePassword {
+                username: "admin".to_string(),
+                password: "old-pass".to_string(),
+            },
+        )
+        .await
+        .expect("failed to seed existing NVOS credentials");
+    env.rms_sim
+        .queue_update_switch_system_password_response(Ok(switch_password_response(
+            &switch_id,
+            rms::ReturnCode::Success,
+            "",
+        )))
+        .await;
+
+    env.run_switch_controller_iteration().await;
+
+    let requests = env
+        .rms_sim
+        .submitted_switch_system_password_requests()
+        .await;
+    assert_eq!(requests.len(), 1);
+    let request = &requests[0];
+    assert_eq!(request.username, "admin");
+    assert_eq!(request.password, "nvos_pass1");
+
+    let nodes = request.nodes.as_ref().expect("nodes should be set");
+    assert_eq!(nodes.devices.len(), 1);
+    let device = &nodes.devices[0];
+    assert_eq!(device.node_id, switch_id.to_string());
+    assert_eq!(device.r#type, Some(rms::NodeType::Switch as i32));
+    assert!(
+        device
+            .bmc_endpoint
+            .as_ref()
+            .and_then(|endpoint| endpoint.interface.as_ref())
+            .is_some(),
+        "BMC endpoint interface should be populated"
+    );
+    let host_credentials = device
+        .host_endpoint
+        .as_ref()
+        .and_then(|endpoint| endpoint.credentials.as_ref())
+        .and_then(|credentials| credentials.auth.as_ref())
+        .expect("host credentials should be set");
+    match host_credentials {
+        rms::credentials::Auth::UserPass(user_pass) => {
+            assert_eq!(user_pass.username, "admin");
+            assert_eq!(user_pass.password, "old-pass");
+        }
+        rms::credentials::Auth::SessionToken(_) => {
+            panic!("host credentials should use username/password")
+        }
+    }
+
+    let credentials = env
+        .test_credential_manager
+        .get_credentials(&credential_key)
+        .await
+        .expect("failed to read rotated credentials from vault")
+        .expect("rotated credentials should be stored in vault");
+    assert_eq!(
+        credentials,
+        Credentials::UsernamePassword {
+            username: "admin".to_string(),
+            password: "nvos_pass1".to_string(),
+        }
+    );
+
+    let mut txn = pool.acquire().await?;
+    let switch = db_switch::find_by_id(&mut txn, &switch_id)
+        .await?
+        .expect("switch should exist");
+    assert!(matches!(
+        switch.controller_state.value,
+        SwitchControllerState::Validating { .. }
+    ));
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_switch_rotate_os_password_rms_failure_does_not_update_vault(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+    let (switch_id, bmc_mac_address) =
+        create_configuring_switch_with_nvos_password(&env, &pool).await?;
+    let credential_key = CredentialKey::SwitchNvosAdmin { bmc_mac_address };
+    let existing_credentials = Credentials::UsernamePassword {
+        username: "admin".to_string(),
+        password: "old-pass".to_string(),
+    };
+
+    env.test_credential_manager
+        .set_credentials(&credential_key, &existing_credentials)
+        .await
+        .expect("failed to seed existing NVOS credentials");
+    env.rms_sim
+        .queue_update_switch_system_password_response(Ok(switch_password_response(
+            &switch_id,
+            rms::ReturnCode::Failure,
+            "mock rotation failed",
+        )))
+        .await;
+
+    env.run_switch_controller_iteration().await;
+
+    let credentials = env
+        .test_credential_manager
+        .get_credentials(&credential_key)
+        .await
+        .expect("failed to read existing credentials from vault")
+        .expect("existing credentials should remain in vault");
+    assert_eq!(credentials, existing_credentials);
+
+    let mut txn = pool.acquire().await?;
+    let switch = db_switch::find_by_id(&mut txn, &switch_id)
+        .await?
+        .expect("switch should exist");
+    assert!(matches!(
+        switch.controller_state.value,
+        SwitchControllerState::Error { ref cause } if cause.contains("mock rotation failed")
+    ));
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_switch_rotate_os_password_rms_transport_error_does_not_update_vault(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+    let (switch_id, bmc_mac_address) =
+        create_configuring_switch_with_nvos_password(&env, &pool).await?;
+    let credential_key = CredentialKey::SwitchNvosAdmin { bmc_mac_address };
+    let existing_credentials = Credentials::UsernamePassword {
+        username: "admin".to_string(),
+        password: "old-pass".to_string(),
+    };
+
+    env.test_credential_manager
+        .set_credentials(&credential_key, &existing_credentials)
+        .await
+        .expect("failed to seed existing NVOS credentials");
+    env.rms_sim
+        .queue_update_switch_system_password_response(Err(
+            librms::RackManagerError::ApiInvocationError(tonic::Status::unavailable("rms down")),
+        ))
+        .await;
+
+    env.run_switch_controller_iteration().await;
+
+    let credentials = env
+        .test_credential_manager
+        .get_credentials(&credential_key)
+        .await
+        .expect("failed to read existing credentials from vault")
+        .expect("existing credentials should remain in vault");
+    assert_eq!(credentials, existing_credentials);
+
+    let mut txn = pool.acquire().await?;
+    let switch = db_switch::find_by_id(&mut txn, &switch_id)
+        .await?
+        .expect("switch should exist");
+    assert!(matches!(
+        switch.controller_state.value,
+        SwitchControllerState::Error { ref cause } if cause.contains("rms down")
+    ));
 
     Ok(())
 }

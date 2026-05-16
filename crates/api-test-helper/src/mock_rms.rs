@@ -176,6 +176,11 @@ pub struct MockRmsApi {
     enable_scale_up_fabric_telemetry_interface_calls:
         Mutex<Vec<rms::EnableScaleUpFabricTelemetryInterfaceRequest>>,
 
+    // Switch password calls.
+    update_switch_system_password_responses:
+        Mutex<VecDeque<Result<rms::UpdateSwitchSystemPasswordResponse, RackManagerError>>>,
+    update_switch_system_password_calls: Mutex<Vec<rms::UpdateSwitchSystemPasswordRequest>>,
+
     // Version (no request type).
     version_responses: Mutex<VecDeque<Result<(), RackManagerError>>>,
     version_call_count: Mutex<u32>,
@@ -255,6 +260,8 @@ impl MockRmsApi {
             configure_scale_up_fabric_manager_calls: Default::default(),
             enable_scale_up_fabric_telemetry_interface_responses: Default::default(),
             enable_scale_up_fabric_telemetry_interface_calls: Default::default(),
+            update_switch_system_password_responses: Default::default(),
+            update_switch_system_password_calls: Default::default(),
             version_responses: Default::default(),
             version_call_count: Default::default(),
         }
@@ -513,6 +520,16 @@ impl MockRmsApi {
         rms::EnableScaleUpFabricTelemetryInterfaceResponse
     );
 
+    // Switch password
+    impl_enqueue_inspect!(
+        enqueue_update_switch_system_password,
+        update_switch_system_password_calls,
+        update_switch_system_password_responses,
+        update_switch_system_password_calls,
+        rms::UpdateSwitchSystemPasswordRequest,
+        rms::UpdateSwitchSystemPasswordResponse
+    );
+
     // Version (special — no request type)
     pub async fn enqueue_version(&self, resp: Result<(), RackManagerError>) {
         self.version_responses.lock().await.push_back(resp);
@@ -675,9 +692,13 @@ impl RmsApi for MockRmsApi {
     }
     async fn update_switch_system_password(
         &self,
-        _cmd: rms::UpdateSwitchSystemPasswordRequest,
+        cmd: rms::UpdateSwitchSystemPasswordRequest,
     ) -> Result<rms::UpdateSwitchSystemPasswordResponse, RackManagerError> {
-        Ok(rms::UpdateSwitchSystemPasswordResponse::default())
+        self.update_switch_system_password_calls
+            .lock()
+            .await
+            .push(cmd);
+        pop_or_err(&mut self.update_switch_system_password_responses.lock().await)
     }
     async fn get_power_state(
         &self,
