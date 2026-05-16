@@ -1336,7 +1336,7 @@ impl MachineStateControllerConfig {
     }
 
     pub fn failure_retry_time_default() -> Duration {
-        Duration::minutes(30)
+        Duration::minutes(90)
     }
 
     pub fn dpu_up_threshold_default() -> Duration {

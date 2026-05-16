@@ -84,7 +84,7 @@ spiffe_machine_base_path = "/forge-system/machine/"
 additional_issuer_cns = []
 
 # [machine_state_controller]
-# failure_retry_time = "45m"
+# failure_retry_time = "90m"
 
 [network_security_group]
 # Controls whether additional config to support
