@@ -29,9 +29,9 @@ use crate::crds::bfbs_generated::{BFB, BfbSpec};
 use crate::crds::dpudeployments_generated::{
     DPUDeployment, DpuDeploymentDpus, DpuDeploymentDpusDpuSetStrategy,
     DpuDeploymentDpusDpuSetStrategyType, DpuDeploymentDpusDpuSets,
-    DpuDeploymentDpusDpuSetsNodeSelector, DpuDeploymentDpusNodeEffect, DpuDeploymentServiceChains,
-    DpuDeploymentServiceChainsSwitches, DpuDeploymentServiceChainsSwitchesPorts,
-    DpuDeploymentServiceChainsSwitchesPortsService,
+    DpuDeploymentDpusDpuSetsDpuNodeSelector, DpuDeploymentDpusNodeEffect,
+    DpuDeploymentServiceChains, DpuDeploymentServiceChainsSwitches,
+    DpuDeploymentServiceChainsSwitchesPorts, DpuDeploymentServiceChainsSwitchesPortsService,
     DpuDeploymentServiceChainsSwitchesPortsServiceInterface,
     DpuDeploymentServiceChainsUpgradePolicy, DpuDeploymentServices, DpuDeploymentServicesDependsOn,
     DpuDeploymentSpec,
@@ -425,6 +425,7 @@ async fn create_bfb<R: BfbRepository>(
         spec: BfbSpec {
             url: bfb_url.to_string(),
             file_name: None,
+            versions: None,
         },
         status: None,
     };
@@ -614,7 +615,7 @@ pub fn build_service_nad(svc: &ServiceDefinition, namespace: &str) -> Option<DPU
             bridge: service_nad.bridge.clone(),
             chained_cn_is: None,
             ipam: service_nad.ipam,
-            metadata: None,
+            dpu_cluster_selector: None,
             resource_type: match service_nad.resource_type {
                 ServiceNADResourceType::Sf => DpuServiceNadResourceType::Sf,
                 ServiceNADResourceType::Vf => DpuServiceNadResourceType::Vf,
@@ -738,13 +739,16 @@ pub fn build_deployment<L: ResourceLabeler>(
                     dpu_annotations: None,
                     dpu_selector: None,
                     name_suffix: "default".to_string(),
-                    node_selector: Some(DpuDeploymentDpusDpuSetsNodeSelector {
+                    dpu_node_selector: Some(DpuDeploymentDpusDpuSetsDpuNodeSelector {
                         match_expressions: None,
                         match_labels: Some(node_labels),
                     }),
+                    dpu_cluster_selector: None,
+                    dpu_device_selector: None,
+                    node_selector: None,
                 }]),
                 flavor: flavor_name.to_string(),
-                node_effect: Some(DpuDeploymentDpusNodeEffect {
+                node_effect: DpuDeploymentDpusNodeEffect {
                     custom_action: None,
                     custom_label: None,
                     drain: None,
@@ -752,11 +756,12 @@ pub fn build_deployment<L: ResourceLabeler>(
                     hold: Some(true),
                     no_effect: None,
                     taint: None,
-                }),
-                dpu_set_strategy: Some(DpuDeploymentDpusDpuSetStrategy {
+                },
+                dpu_set_strategy: DpuDeploymentDpusDpuSetStrategy {
                     rolling_update: None,
-                    r#type: Some(DpuDeploymentDpusDpuSetStrategyType::OnDelete),
-                }),
+                    r#type: DpuDeploymentDpusDpuSetStrategyType::OnDelete,
+                },
+                secure_boot: None,
             },
             revision_history_limit: None,
             service_chains,
@@ -992,10 +997,12 @@ pub fn build_service_interface(
                             service: None,
                             vf,
                             vlan: None,
+                            patch: None,
                         },
                     },
                 },
             },
+            dpu_cluster_selector: None,
         },
     );
     cr.metadata = ObjectMeta {
@@ -1591,7 +1598,7 @@ impl<R: DpuNodeRepository + DpuDeviceRepository + DpuRepository, L> DpfSdk<R, L>
                     name: d.metadata.name.clone().unwrap_or_default(),
                     labels: d.metadata.labels.clone().unwrap_or_default(),
                     spec_bfb: d.spec.bfb.clone(),
-                    spec_dpu_flavor: d.spec.dpu_flavor.clone(),
+                    spec_dpu_flavor: Some(d.spec.dpu_flavor.clone()),
                     spec_dpu_device_name: d.spec.dpu_device_name.clone(),
                     spec_dpu_node_name: d.spec.dpu_node_name.clone(),
                     status_phase: d.status.as_ref().map(|s| format!("{:?}", s.phase)),
@@ -1676,7 +1683,7 @@ mod tests {
 
     use super::*;
     use crate::crds::dpuflavors_generated::DPUFlavor;
-    use crate::crds::dpus_generated::DPU;
+    use crate::crds::dpus_generated::{DPU, DpuNodeEffect};
     use crate::repository::{
         DpuDeviceRepository, DpuFlavorRepository, DpuNodeRepository, DpuRepository,
     };
@@ -2256,11 +2263,23 @@ mod tests {
                 bmc_ip: None,
                 cluster: None,
                 dpu_device_name: "dpu-001".to_string(),
-                dpu_flavor: Some(crate::flavor::DEFAULT_FLAVOR_NAME.to_string()),
+                dpu_flavor: crate::flavor::DEFAULT_FLAVOR_NAME.to_string(),
                 dpu_node_name: "node-dpu-001".to_string(),
-                node_effect: None,
+                node_effect: DpuNodeEffect {
+                    apply_on_label_change: None,
+                    custom_action: None,
+                    custom_label: None,
+                    drain: None,
+                    force: None,
+                    hold: None,
+                    no_effect: None,
+                    node_maintenance_additional_requestors: None,
+                    taint: None,
+                },
                 pci_address: None,
                 serial_number: "SN123".to_string(),
+                blue_field_software: None,
+                secure_boot: None,
             },
             status: Some(DpuStatus {
                 phase: DpuStatusPhase::Ready,
@@ -2277,6 +2296,13 @@ mod tests {
                 pci_device: None,
                 post_provisioning_node_effect: None,
                 required_reset: None,
+                agent_last_startup_time: None,
+                agent_status: None,
+                dpu_type: None,
+                operational_conditions: None,
+                previous_phase: None,
+                redfish_task_id: None,
+                secure_boot: None,
             }),
         };
         mock.dpus
