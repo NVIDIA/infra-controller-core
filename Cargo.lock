@@ -6711,6 +6711,7 @@ dependencies = [
  "tokio-test",
  "tracing",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]

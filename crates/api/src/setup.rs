@@ -955,10 +955,15 @@ pub async fn initialize_and_start_controllers<'a>(
                 }
             };
 
+            // Suffix the broker-level client identifier so multiple replicas
+            // (or a new pod coming up while the old one is still terminating)
+            // do not race for the same MQTT session and ping-pong each other
+            // off the broker.
+            let client_id = mqttea::unique_client_id("carbide-dsx-exchange-event-bus");
             let client = mqttea::MqtteaClient::new(
                 &config.mqtt_endpoint,
                 config.mqtt_broker_port,
-                "carbide-dsx-exchange-event-bus",
+                &client_id,
                 Some(options),
             )
             .map_err(|e| eyre::eyre!("Failed to create DSX Exchange Event Bus MQTT client: {e}"))
