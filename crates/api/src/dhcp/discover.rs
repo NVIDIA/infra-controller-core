@@ -51,6 +51,7 @@ async fn handle_overlay_from_dpa(
     dpa_if: &mut DpaInterface,
     macaddr: MacAddress,
     desired_addr: IpAddr,
+    ntp_servers: &[String],
 ) -> Result<Option<Response<rpc::DhcpRecord>>, CarbideError> {
     let IpAddr::V4(ip_v4_addr) = desired_addr else {
         return Err(CarbideError::internal(
@@ -79,6 +80,7 @@ async fn handle_overlay_from_dpa(
         mtu: SPX_MTU,
         fqdn: String::new(),
         prefix,
+        ntp_servers: ntp_servers.to_vec(),
     })))
 }
 
@@ -89,6 +91,7 @@ async fn handle_underlay_from_dpa(
     dpa_if: &mut DpaInterface,
     macaddr: MacAddress,
     relay_address: String,
+    ntp_servers: &[String],
 ) -> Result<Option<Response<rpc::DhcpRecord>>, CarbideError> {
     // The relay address and the mac address should differ only in bit 0
     let relay_addr = Ipv4Addr::from_str(&relay_address)?;
@@ -118,6 +121,7 @@ async fn handle_underlay_from_dpa(
         mtu: SPX_MTU,
         fqdn: String::new(),
         prefix,
+        ntp_servers: ntp_servers.to_vec(),
     })))
 }
 
@@ -155,10 +159,24 @@ async fn handle_dhcp_from_dpa(
     let mut dpa_if = dpa_ifs.remove(0);
 
     if let Some(addr) = desired_address {
-        return handle_overlay_from_dpa(txn, &mut dpa_if, macaddr, addr).await;
+        return handle_overlay_from_dpa(
+            txn,
+            &mut dpa_if,
+            macaddr,
+            addr,
+            &api.runtime_config.ntp_servers,
+        )
+        .await;
     }
 
-    handle_underlay_from_dpa(txn, &mut dpa_if, macaddr, relay_address).await
+    handle_underlay_from_dpa(
+        txn,
+        &mut dpa_if,
+        macaddr,
+        relay_address,
+        &api.runtime_config.ntp_servers,
+    )
+    .await
 }
 
 pub async fn discover_dhcp(
@@ -394,7 +412,7 @@ pub async fn discover_dhcp(
 
     let mut txn = api.txn_begin().await?;
 
-    let record: rpc::DhcpRecord = db::dhcp_record::find_by_mac_address(
+    let mut record: rpc::DhcpRecord = db::dhcp_record::find_by_mac_address(
         &mut txn,
         &parsed_mac,
         &machine_interface.segment_id,
@@ -404,5 +422,8 @@ pub async fn discover_dhcp(
     .into();
 
     txn.commit().await?;
+
+    record.ntp_servers = api.runtime_config.ntp_servers.clone();
+
     Ok(Response::new(record))
 }
