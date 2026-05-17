@@ -28,7 +28,7 @@ use crate::collectors::{
     StreamingCollectorStartContext,
 };
 use crate::config::{Configurable, LogCollectionMode};
-use crate::endpoint::{BmcEndpoint, EndpointMetadata};
+use crate::endpoint::BmcEndpoint;
 use crate::sink::DataSink;
 
 fn logs_state_file_path(template: &str, endpoint_id: &str) -> PathBuf {
@@ -41,8 +41,22 @@ pub(super) async fn spawn_collectors_for_endpoint(
     data_sink: Option<Arc<dyn DataSink>>,
     metrics_prefix: &str,
 ) -> Result<(), HealthError> {
+    if endpoint.switch_data().is_some() {
+        spawn_switch_collectors(ctx, endpoint, data_sink, metrics_prefix)
+    } else {
+        spawn_generic_redfish_collectors(ctx, endpoint, data_sink, metrics_prefix)
+    }
+}
+
+fn spawn_generic_redfish_collectors(
+    ctx: &mut DiscoveryLoopContext,
+    endpoint: &Arc<BmcEndpoint>,
+    data_sink: Option<Arc<dyn DataSink>>,
+    metrics_prefix: &str,
+) -> Result<(), HealthError> {
     let key = endpoint.key();
     let endpoint_arc = endpoint.clone();
+
     if let Configurable::Enabled(sensor_cfg) = &ctx.sensors_config
         && !ctx.collectors.contains(CollectorKind::Sensor, &key)
     {
@@ -216,7 +230,7 @@ pub(super) async fn spawn_collectors_for_endpoint(
                 metrics_prefix,
             )?);
         match Collector::start::<LeakDetectorCollector<BmcClient>>(
-            endpoint_arc.clone(),
+            endpoint_arc,
             LeakDetectorCollectorConfig {
                 data_sink: data_sink.clone(),
                 state_refresh_interval: leak_detector_cfg.state_refresh_interval,
@@ -250,9 +264,20 @@ pub(super) async fn spawn_collectors_for_endpoint(
         }
     }
 
+    Ok(())
+}
+
+fn spawn_switch_collectors(
+    ctx: &mut DiscoveryLoopContext,
+    endpoint: &Arc<BmcEndpoint>,
+    data_sink: Option<Arc<dyn DataSink>>,
+    metrics_prefix: &str,
+) -> Result<(), HealthError> {
+    let key = endpoint.key();
+    let endpoint_arc = endpoint.clone();
+
     if let Configurable::Enabled(nmxt_cfg) = &ctx.nmxt_config
         && !ctx.collectors.contains(CollectorKind::Nmxt, &key)
-        && matches!(endpoint.metadata, Some(EndpointMetadata::Switch(_)))
     {
         let collector_registry = Arc::new(
             ctx.metrics_manager
@@ -279,7 +304,7 @@ pub(super) async fn spawn_collectors_for_endpoint(
                 tracing::info!(
                     endpoint_key = %key,
                     total_nmxt_collectors = ctx.collectors.len(CollectorKind::Nmxt),
-                    "Started NMX-T collection for BMC endpoint"
+                    "Started NMX-T collection for switch endpoint"
                 );
             }
             Err(error) => {
@@ -295,7 +320,6 @@ pub(super) async fn spawn_collectors_for_endpoint(
     if let Configurable::Enabled(nvue_cfg) = &ctx.nvue_config
         && let Configurable::Enabled(rest_cfg) = &nvue_cfg.rest
         && !ctx.collectors.contains(CollectorKind::NvueRest, &key)
-        && matches!(endpoint.metadata, Some(EndpointMetadata::Switch(_)))
     {
         let collector_registry = Arc::new(
             ctx.metrics_manager
@@ -322,7 +346,7 @@ pub(super) async fn spawn_collectors_for_endpoint(
                 tracing::info!(
                     endpoint_key = %key,
                     total_nvue_rest_collectors = ctx.collectors.len(CollectorKind::NvueRest),
-                    "Started NVUE REST collection for BMC endpoint"
+                    "Started NVUE REST collection for switch endpoint"
                 );
             }
             Err(error) => {
@@ -347,9 +371,69 @@ mod tests {
 
     use super::*;
     use crate::config::{Config, Configurable};
-    use crate::endpoint::{BmcAddr, BmcCredentials, EndpointMetadata, SwitchData};
+    use crate::endpoint::{BmcAddr, BmcCredentials, EndpointMetadata, MachineData, SwitchData};
     use crate::limiter::{NoopLimiter, RateLimiter};
     use crate::metrics::MetricsManager;
+    use crate::sink::{CollectorEvent, EventContext};
+
+    struct NoopSink;
+
+    impl DataSink for NoopSink {
+        fn sink_type(&self) -> &'static str {
+            "noop"
+        }
+
+        fn handle_event(&self, _context: &EventContext, _event: &CollectorEvent) {}
+    }
+
+    fn context_with_config(config: Config, metrics_name: &str) -> DiscoveryLoopContext {
+        let limiter: Arc<dyn RateLimiter> = Arc::new(NoopLimiter);
+        let metrics_manager =
+            Arc::new(MetricsManager::new(metrics_name).expect("metrics manager should initialize"));
+        DiscoveryLoopContext::new(limiter, metrics_manager, Arc::new(config))
+            .expect("context should initialize")
+    }
+
+    fn test_endpoint(
+        ip: Ipv4Addr,
+        mac: &str,
+        metadata: Option<EndpointMetadata>,
+    ) -> Arc<BmcEndpoint> {
+        Arc::new(BmcEndpoint::with_fixed_credentials(
+            BmcAddr {
+                ip: IpAddr::V4(ip),
+                port: Some(443),
+                mac: MacAddress::from_str(mac).expect("valid mac address"),
+            },
+            BmcCredentials::UsernamePassword {
+                username: "user".to_string(),
+                password: Some("pass".to_string()),
+            },
+            metadata,
+            None,
+        ))
+    }
+
+    fn switch_metadata() -> EndpointMetadata {
+        EndpointMetadata::Switch(SwitchData {
+            id: None,
+            serial: "switch-serial-1".to_string(),
+            slot_number: None,
+            tray_index: None,
+        })
+    }
+
+    fn machine_metadata() -> EndpointMetadata {
+        EndpointMetadata::Machine(MachineData {
+            machine_id: "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0"
+                .parse()
+                .expect("valid machine id"),
+            machine_serial: None,
+            slot_number: None,
+            tray_index: None,
+            nvlink_domain_uuid: None,
+        })
+    }
 
     #[test]
     fn test_logs_state_file_path_replaces_endpoint_id() {
@@ -359,45 +443,81 @@ mod tests {
 
     #[test]
     fn test_endpoint_log_identity_falls_back_to_mac_without_metadata() {
-        let endpoint = BmcEndpoint::with_fixed_credentials(
-            BmcAddr {
-                ip: IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
-                port: Some(443),
-                mac: MacAddress::from_str("aa:bb:cc:dd:ee:ff").unwrap(),
-            },
-            BmcCredentials::UsernamePassword {
-                username: "user".to_string(),
-                password: Some("pass".to_string()),
-            },
-            None,
-            None,
-        );
+        let endpoint = test_endpoint(Ipv4Addr::new(10, 0, 0, 1), "aa:bb:cc:dd:ee:ff", None);
 
         assert_eq!(endpoint.log_identity().as_ref(), "AA:BB:CC:DD:EE:FF");
     }
 
     #[test]
     fn test_endpoint_log_identity_uses_switch_serial_when_available() {
-        let endpoint = BmcEndpoint::with_fixed_credentials(
-            BmcAddr {
-                ip: IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)),
-                port: Some(443),
-                mac: MacAddress::from_str("11:22:33:44:55:66").unwrap(),
-            },
-            BmcCredentials::UsernamePassword {
-                username: "user".to_string(),
-                password: Some("pass".to_string()),
-            },
-            Some(EndpointMetadata::Switch(SwitchData {
-                id: None,
-                serial: "switch-serial-1".to_string(),
-                slot_number: None,
-                tray_index: None,
-            })),
-            None,
+        let endpoint = test_endpoint(
+            Ipv4Addr::new(10, 0, 0, 2),
+            "11:22:33:44:55:66",
+            Some(switch_metadata()),
         );
 
         assert_eq!(endpoint.log_identity().as_ref(), "switch-serial-1");
+    }
+
+    #[tokio::test]
+    async fn test_switch_endpoint_does_not_start_generic_redfish_collectors() {
+        let mut config = Config::default();
+        config.collectors.sensors = Configurable::Enabled(Default::default());
+        config.collectors.logs = Configurable::Enabled(Default::default());
+        config.collectors.firmware = Configurable::Enabled(Default::default());
+        config.collectors.leak_detector = Configurable::Enabled(Default::default());
+        config.collectors.nmxt = Configurable::Disabled;
+        config.collectors.nvue = Configurable::Disabled;
+
+        let mut ctx = context_with_config(config, "test_switch_generic_redfish_gate");
+        let endpoint = test_endpoint(
+            Ipv4Addr::new(10, 0, 0, 6),
+            "55:66:77:88:99:aa",
+            Some(switch_metadata()),
+        );
+
+        spawn_collectors_for_endpoint(
+            &mut ctx,
+            &endpoint,
+            Some(Arc::new(NoopSink)),
+            "test_switch_generic_redfish_gate",
+        )
+        .await
+        .expect("spawn should succeed");
+
+        assert_eq!(ctx.collectors.len(CollectorKind::Sensor), 0);
+        assert_eq!(ctx.collectors.len(CollectorKind::Logs), 0);
+        assert_eq!(ctx.collectors.len(CollectorKind::Firmware), 0);
+        assert_eq!(ctx.collectors.len(CollectorKind::LeakDetector), 0);
+    }
+
+    #[tokio::test]
+    async fn test_machine_endpoint_still_starts_sse_logs_collector() {
+        let mut config = Config::default();
+        config.collectors.sensors = Configurable::Disabled;
+        config.collectors.logs = Configurable::Enabled(Default::default());
+        config.collectors.firmware = Configurable::Disabled;
+        config.collectors.leak_detector = Configurable::Disabled;
+        config.collectors.nmxt = Configurable::Disabled;
+        config.collectors.nvue = Configurable::Disabled;
+
+        let mut ctx = context_with_config(config, "test_machine_sse_logs_collector");
+        let endpoint = test_endpoint(
+            Ipv4Addr::new(10, 0, 0, 7),
+            "66:77:88:99:aa:bb",
+            Some(machine_metadata()),
+        );
+
+        spawn_collectors_for_endpoint(
+            &mut ctx,
+            &endpoint,
+            Some(Arc::new(NoopSink)),
+            "test_machine_sse_logs_collector",
+        )
+        .await
+        .expect("spawn should succeed");
+
+        assert_eq!(ctx.collectors.len(CollectorKind::Logs), 1);
     }
 
     #[tokio::test]
@@ -408,26 +528,10 @@ mod tests {
         config.collectors.firmware = Configurable::Disabled;
         config.collectors.leak_detector = Configurable::Disabled;
         config.collectors.nmxt = Configurable::Disabled;
+        config.collectors.nvue = Configurable::Disabled;
 
-        let limiter: Arc<dyn RateLimiter> = Arc::new(NoopLimiter);
-        let metrics_manager =
-            Arc::new(MetricsManager::new("test").expect("metrics manager should initialize"));
-        let mut ctx = DiscoveryLoopContext::new(limiter, metrics_manager, Arc::new(config))
-            .expect("context should initialize");
-
-        let endpoint = Arc::new(BmcEndpoint::with_fixed_credentials(
-            BmcAddr {
-                ip: IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
-                port: Some(443),
-                mac: MacAddress::from_str("aa:bb:cc:dd:ee:ff").unwrap(),
-            },
-            BmcCredentials::UsernamePassword {
-                username: "user".to_string(),
-                password: Some("pass".to_string()),
-            },
-            None,
-            None,
-        ));
+        let mut ctx = context_with_config(config, "test_disabled_collectors");
+        let endpoint = test_endpoint(Ipv4Addr::new(10, 0, 0, 1), "aa:bb:cc:dd:ee:ff", None);
 
         spawn_collectors_for_endpoint(&mut ctx, &endpoint, None, "test")
             .await
